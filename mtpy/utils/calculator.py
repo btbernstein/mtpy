@@ -295,22 +295,22 @@ def propagate_error_polar2rect(r,r_error,phi, phi_error):
 
 
 
-def propagate_error_rect2polar(x,x_error,y, y_error):
+def propagate_error_rect2polar(x, x_error, y, y_error):
+    """
+    x_error, y_error define a  rectangular uncertainty box  
     
-    # x_error, y_error define a  rectangular uncertainty box  
-    
-    # rho error is the difference between the closest and furthest point of the box (w.r.t. the origin)
-    # approximation: just take corners and midpoint of edges 
+    rho error is the difference between the closest and furthest point of the box (w.r.t. the origin)
+    approximation: just take corners and midpoint of edges 
+    """
     lo_points = [ (x + x_error, y), (x - x_error, y), (x, y - y_error ), (x, y + y_error ),\
                   (x - x_error, y - y_error) ,(x + x_error, y - y_error) ,(x + x_error, y + y_error) ,(x - x_error, y + y_error) ]
 
-
-    #check, if origin is within the box:
-    origin_in_box = False
-    if x_error >= np.abs(x) and y_error >= np.abs(y):
-        origin_in_box = True
-
-    lo_polar_points = [ cmath.polar(np.complex(*i)) for i in lo_points ]
+    lo_polar_points = []
+    for point in lo_points:
+        try:
+            lo_polar_points.append(cmath.polar(np.complex(*point)))
+        except OverflowError:
+            lo_polar_points.append(np.repeat(np.nan, 8))
 
     lo_rho = [i[0] for i in lo_polar_points ]
     lo_phi = [math.degrees(i[1])%360 for i in lo_polar_points ]
@@ -323,11 +323,15 @@ def propagate_error_rect2polar(x,x_error,y, y_error):
         tmp4 = [ i for i in lo_phi if (270 < i < 360) ]
         phi_err = 0.5*((max(tmp1) - min(tmp4))%360)
 
-
     if phi_err > 180:
         #print phi_err,' -> ',(-phi_err)%360
         phi_err = (-phi_err)%360
 
+        #check, if origin is within the box:
+    origin_in_box = False
+    if x_error >= np.abs(x) and y_error >= np.abs(y):
+        origin_in_box = True
+        
     if origin_in_box is True:
         #largest rho:
         rho_err = 2*rho_err + min(lo_rho)

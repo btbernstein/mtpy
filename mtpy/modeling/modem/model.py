@@ -546,9 +546,12 @@ class Model(object):
                 self._logger.warn('No grid_z provided, creating new z mesh using default method')
         
         if self.z_mesh_method == 'custom':
-                self.nodes_z, z_grid = self.grid_z[1:]-self.grid_z[:-1], self.grid_z
+            self.nodes_z = self.grid_z[1:]-self.grid_z[:-1]
         elif self.z_mesh_method == 'new':
-            self.nodes_z,z_grid = self.make_z_mesh_new()
+            self.nodes_z  = self.make_z_mesh_new(self.z1_layer,
+                                                 self.z_target_depth,
+                                                 self.n_layers,
+                                                 self.pad_z)
         else:
             raise NameError("Z mesh method \"{}\" is not supported".format(self.z_mesh_method))
 
@@ -592,78 +595,38 @@ class Model(object):
         print('-' * 15, file=file)
 
 
-    def make_z_mesh_new(self):
+    def make_z_mesh_new(self, first_layer, target_depth, num_layers, num_pad):
         """
         new version of make_z_mesh. make_z_mesh and M
         """
 
         # --> make depth grid
-        # if n_airlayers < 0; set to 0
-        nair = max(0, self.n_air_layers)
-
-        log_z = mtcc.make_log_increasing_array(self.z1_layer, self.z_target_depth,
-                                               self.n_layers - self.pad_z - nair)
+        log_z = mtcc.make_log_increasing_array(first_layer, 
+                                               target_depth,
+                                               num_layers - num_pad)
 
         # round any values less than 100 to the same d.p. as z1_layer
-        z_nodes = np.around(log_z[log_z < 100], decimals=-int(np.floor(np.log10(self.z1_layer))))
+        z_nodes = np.around(log_z[log_z < 100], 
+                            decimals=-int(np.floor(np.log10(first_layer))))
         # round any values greater than or equal to 100 to the nearest 100
-        z_nodes = np.append(z_nodes, np.around(log_z[log_z >= 100], decimals=-2))
+        z_nodes = np.append(z_nodes, 
+                            np.around(log_z[log_z >= 100], decimals=-2))
 
         # index of top of padding
         itp = len(z_nodes) - 1
 
         # padding cells in the vertical direction
-        for ii in range(1, self.pad_z + 1):
+        for ii in range(1, num_pad + 1):
             z_0 = np.float(z_nodes[itp])
             pad_d = np.round(z_0 * self.pad_stretch_v ** ii, -2)
             z_nodes = np.append(z_nodes, pad_d)
 
         # add air layers and define ground surface level.
         # initial layer thickness is same as z1_layer
-        z_nodes = np.hstack([[self.z1_layer] * self.n_air_layers, z_nodes])
+#        z_nodes = np.hstack([[first_layer] * self.n_air_layers, z_nodes])
 
-        # make an array of absolute values
-        z_grid = np.array([z_nodes[:ii].sum() for ii in range(z_nodes.shape[0] + 1)])
-
-        return z_nodes, z_grid
+        return z_nodes
 		
-    def add_layers_to_mesh(self,n_add_layers=None,layer_thickness=None,where='top'):
-        """
-        Function to add constant thickness layers to the top or bottom of mesh.
-        Note: It is assumed these layers are added before the topography. If 
-        you want to add topography layers, use function add_topography_to_model2
-
-        :param n_add_layers: integer, number of layers to add
-        :param layer_thickness: real value or list/array. Thickness of layers,
-                                defaults to z1 layer. Can provide a single value
-                                or a list/array containing multiple layer
-                                thicknesses.
-        :param where: where to add, top or bottom
-   
-        
-        """
-        # create array containing layers to add
-        if layer_thickness is None:
-            layer_thickness = self.z1_layer
-        if np.iterable(layer_thickness):
-            add_layers = np.insert(np.cumsum(layer_thickness),0,0)[:-1]
-            layer_thickness = layer_thickness[-1]
-            
-            if n_add_layers != len(add_layers):
-                self._logger.warn("Updating number of layers to reflect the length of the layer thickness array")
-            n_add_layers = len(add_layers)
-        else:
-            add_layers = np.arange(0,n_add_layers*layer_thickness,layer_thickness)
-            
-        # create a new z grid
-        self.grid_z = np.hstack([add_layers,self.grid_z + add_layers[-1] + layer_thickness])
-        
-        # update the number of layers
-        self.n_layers = len(self.grid_z) - 1
-        
-        # add the extra layer to the res model
-        self.res_model = np.vstack([self.res_model[:,:,:n_add_layers].T,self.res_model.T]).T
-
     def assign_resistivity_from_surfacedata(self, top_surface, bottom_surface, resistivity_value):
         """
         assign resistivity value to all points above or below a surface
@@ -1676,15 +1639,24 @@ class Model(object):
 
         return
 
-    def add_topography_to_model2(self, topographyfile=None, topographyarray=None,
+    def add_topography_to_model(self, topographyfile=None, topographyarray=None,
                                  interp_method='nearest', air_resistivity=1e12,
                                  topography_buffer=None, airlayer_type = 'log',
                                  max_elev=None):
         """
-        if air_layers is non-zero, will add topo: read in topograph file, make a surface model.
-        Call project_stations_on_topography in the end, which will re-write the .dat file.
+        Add topography to a model given an ascii formatted topography file.
+        Will add n_air_layers to the model that will be topography.
+        The maximum elevation is determined within the station area unless
+        specified by max_elev.  An elevation of 0 is assumed to be sea level.
+        
+        If air_layers is non-zero, will add topo: read in topograph file,
+        make a surface model.
+        
+        .. note:: To project station locations onto the model you will need
+                  to call modem.Data.project_stations_on_topography 
 
-        If n_airlayers is zero, then cannot add topo data, only bathymetry is needed.
+        If n_airlayers is zero, then cannot add topo data, 
+        only bathymetry is needed.
         
         :param topographyfile: file containing topography (arcgis ascii grid)
         :type topographyfile: string
@@ -1743,23 +1715,17 @@ class Model(object):
             
             # assume 0 is sea leve, so get anything above sea level as 
             # topography
-            topo_core_min = max(topo_core.min(),0)
+            topo_core_min = 0
             print('*** MAX ELEVATION = {0}'.format(topo_core.max()))
             print('*** MIN ELEVATION = {0}'.format(max(topo_core.min(),0)))
-            ### Add logarithmically expanding cells to the nodes
             
-            if airlayer_type == 'log_up':
-                # log increasing airlayers, in reversed order
-                new_air_nodes = mtmesh.make_log_increasing_array(self.z1_layer,
-                                                                 topo_core.max() - topo_core_min,
-                                                                 self.n_air_layers,
-                                                                 increment_factor=0.999)[::-1]
+            ### Add logarithmically expanding cells to the nodes
+            if airlayer_type == 'log':
+                self.nodes_z = self.make_z_mesh_new(self.z1_layer,
+                                                    self.z_target_depth + topo_core.max(),
+                                                    self.n_air_layers + self.n_layers,
+                                                    self.pad_z)
 
-                # try concatenating the nodes and sorting them to make sure
-                # that the top cells are the smallest.  Otherwise the inversion
-                # can do some funky things.
-                self.nodes_z = np.sort(np.concatenate([new_air_nodes, 
-                                                      self.nodes_z]))
             ### add cells with the same size as z1 to topography
             elif airlayer_type == 'linear':
                 new_air_nodes = mtmesh.make_equal_spaced_array(self.z1_layer, 
@@ -1767,54 +1733,23 @@ class Model(object):
                                                                topo_core.max())
                 self.nodes_z = np.concatenate([new_air_nodes, self.nodes_z])
                 self.n_air_layers = new_air_nodes.size
-
-            elif airlayer_type == 'log_increasing_down':
-                # increase the number of layers
-                self.n_layers += self.n_air_layers
-                # make a new mesh
-                self.nodes_z, z_grid = self.make_z_mesh_new()
-                # adjust level
-                self.grid_z -= topo_core.max() - topo_core_min
-                # adjust number of air layers. This is pre-determined by
-                # topographic elevation and grid parameters
-                gcz = (self.grid_z[1:] + self.grid_z[:-1])/2.
-                if self.n_air_layers != sum(gcz<0):
-                    self._logger.warn("Number of air layers updated from {} to {}. airlayer_type log_increasing_down does not allow changing of number of air layers".format(self.n_air_layers, sum(gcz<0)))
-
-                self.n_air_layers = sum(gcz<0)
-                self.n_layers -= self.n_air_layers
-                                
+            
+            ### add constant cells for topography
             elif airlayer_type == 'constant':
                 air_cell_thickness = np.ceil((topo_core.max() - topo_core_min)/self.n_air_layers)
                 new_air_nodes = np.array([air_cell_thickness]*self.n_air_layers)
-
-            if 'down' not in airlayer_type:
-                 # sum to get grid cell locations
-                new_airlayers = np.array([new_air_nodes[:ii].sum() for ii in range(len(new_air_nodes) + 1)])
-                # maximum topography cell on the grid
-                topo_max_grid = topo_core_min + new_airlayers[-1]
-                # round to nearest whole number and convert subtract the max elevation (so that sea level is at topo_core_min)
-                new_airlayers = np.around(new_airlayers - topo_max_grid)
-                # add new air layers, cut_off some tailing layers to preserve array size.
-                #            self.grid_z = np.concatenate([new_airlayers, self.grid_z[self.n_airlayers+1:] - self.grid_z[self.n_airlayers] + new_airlayers[-1]], axis=0)
-                self.grid_z = np.concatenate([new_airlayers[:-1], self.grid_z + new_airlayers[-1]], axis=0)
                 
-            # maximum topography cell on the grid
-            # topo_max_grid = topo_core_min + new_air_nodes.sum()
-            # round to nearest whole number and convert subtract the max
-            # elevation (so that sea level is at topo_core_min)
-            # new_airlayers = np.around(new_airlayers - topo_max_grid)
-            # print('*** MAX ELEVATION = {0} ***'.format(topo_max_grid))
-            # self.grid_z = np.around(self.grid_z-topo_max_grid)
-
+                self.nodes_z = np.concatenate([new_air_nodes, self.nodes_z])
+                self.n_air_layers = new_air_nodes.size
+            else:
+                raise ModelError('{0} not a valid grid parameter'.format(airlayer_type))
+                
             self._logger.debug("new_airlayers {}".format(self.grid_z[0:self.n_air_layers]))
+            self._logger.debug("elevation {}".format(self.grid_z[0]))
 
-            self._logger.debug("self.grid_z[0:2] {}".format(self.grid_z[0:2]))
-
-        # print(" NEW self.grid_z shape and values = ", self.grid_z.shape, self.grid_z)
-        #            print self.grid_z
-
-        # update the z-centre as the top air layer
+        # update the grid_z to reflect max topography
+        # and update z-centre as the top air layer
+        self.grid_z -= topo_core.max()
         self.grid_center[2] = self.grid_z[0]
 
         # update the resistivity model
@@ -1822,15 +1757,14 @@ class Model(object):
                                  self.nodes_east.size,
                                  self.nodes_z.size)) * self.res_initial_value
 
-        if 'down' not in airlayer_type:
-            new_res_model[:, :, self.n_air_layers:] = self.res_model
-        
+        new_res_model[:, :, self.n_air_layers:] = self.res_model
         self.res_model = new_res_model
 		
         # assign topography
-        top = np.zeros_like(self.surface_dict['topography']) + self.grid_z[0]
+        top = np.zeros_like(self.surface_dict['topography']) - topo_core.max()
         bottom = -self.surface_dict['topography']
-        self.assign_resistivity_from_surfacedata(top,bottom, 
+        self.assign_resistivity_from_surfacedata(top,
+                                                 bottom, 
                                                  air_resistivity)
         # assign bathymetry
         self.assign_resistivity_from_surfacedata(np.zeros_like(top),

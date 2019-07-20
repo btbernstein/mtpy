@@ -417,7 +417,7 @@ class PlotResponses(QtWidgets.QWidget):
         data file changed outside the program reload it
         """
         
-        print '{0} changed'.format(self.data_fn)
+        print('{0} changed'.format(self.data_fn))
         self.data_fn = os.path.abspath(self._data_fn)
         
     def save_edits(self):
