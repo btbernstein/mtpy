@@ -642,7 +642,7 @@ class ModelWidget(QtWidgets.QWidget):
         self.map_ax = self.map_figure.add_subplot(1, 1, 1, aspect='equal')
         self.map_ax.set_xlabel('Easting {0}'.format(self.units))
         self.map_ax.set_ylabel('Northing {0}'.format(self.units))
-        self.map_ax.set_aspect('equal', 'box-forced')
+        self.map_ax.set_aspect('equal')
         self.map_ax.plot(self.map_east_line_xlist,
                          self.map_east_line_ylist,
                          lw=.25,
@@ -668,7 +668,7 @@ class ModelWidget(QtWidgets.QWidget):
                            color='k')
         self.north_ax.set_xlabel('Easting {0}'.format(self.units))
         self.north_ax.set_ylabel('Depth {0}'.format(self.units))
-        self.north_ax.set_aspect('equal', 'box-forced')
+        self.north_ax.set_aspect('equal')
         self.redraw_north()
         # need to reverse the depth limits to plot properly
         z_lim = self.north_ax.get_ylim()
@@ -691,7 +691,7 @@ class ModelWidget(QtWidgets.QWidget):
                           color='k')
         self.east_ax.set_xlabel('Northing {0}'.format(self.units))
         self.east_ax.set_ylabel('Depth {0}'.format(self.units))
-        self.east_ax.set_aspect('equal', 'box-forced')
+        self.east_ax.set_aspect('equal')
         self.redraw_east()
         
         ## plot the location grid
@@ -701,7 +701,7 @@ class ModelWidget(QtWidgets.QWidget):
                                                             aspect='equal')
         self.location_ax.set_xlabel('Easting {0}'.format(self.units))
         self.location_ax.set_ylabel('Northing {0}'.format(self.units))
-        self.location_ax.set_aspect('equal', 'box-forced')
+        self.location_ax.set_aspect('equal')
         self.location_ax.plot(self.map_east_line_xlist,
                               self.map_east_line_ylist,
                               lw=.25,

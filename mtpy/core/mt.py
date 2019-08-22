@@ -741,13 +741,14 @@ class MT(object):
 
         info_list = []
         # write previous information first
-        for key in sorted(self.Notes.info_dict.keys()):
+        for key in self.Notes.info_dict.keys():
             l_key = key.lower()
             l_value = self.Notes.info_dict[key]
-            info_list.append(
-                '{0} = {1}'.format(
-                    l_key.strip(),
-                    str(l_value).strip()))
+            if '***' in l_key:
+                info_list.append(l_key.strip())
+            else:
+                info_list.append('{0} = {1}'.format(l_key.strip(),
+                                                    str(l_value).strip()))
 
         # get field notes information includes data quality
         for f_key in sorted(self.FieldNotes.__dict__.keys()):
@@ -2147,8 +2148,9 @@ class Instrument(General):
 
         for key in list(kwargs.keys()):
             setattr(self, key, kwargs[key])
-            
-    def get_length(self):
+    
+    @property        
+    def length(self):
         """
         get dipole length
         """
@@ -2157,6 +2159,14 @@ class Instrument(General):
             return np.sqrt((self.x2 - self.x)**2 + (self.y2 - self.y)**2)
         except AttributeError:
             return 0
+        
+    @length.setter
+    def length(self, length):
+        if hasattr(self, 'azimuth'):
+            self.x = 0
+            self.y = 0
+            self.x2 = length * np.sin(np.deg2rad(self.azimuth))
+            self.y2 = length * np.cos(np.deg2rad(self.azimuth))
 
 
 # ==============================================================================

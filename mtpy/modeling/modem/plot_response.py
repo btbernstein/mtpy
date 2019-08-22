@@ -252,7 +252,7 @@ class PlotResponse(object):
         # --> set default font size
         plt.rcParams['font.size'] = self.font_size
 
-        fontdict = {'size': self.font_size, 'weight': 'bold'}
+        fontdict = {'size': self.font_size}
         if self.plot_z:
             h_ratio = [1, 1, .5]
         elif not self.plot_z:
@@ -354,8 +354,8 @@ class PlotResponse(object):
             # make figure
             self.fig = plt.figure(station, self.fig_size, dpi=self.fig_dpi)
             plt.clf()
-            self.fig.suptitle('Station {0}'.format(filter(str.isdigit, str(station)),
-                         fontdict=fontdict))
+            self.fig.suptitle('Station {0}'.format(str(station)), 
+                              fontsize=self.font_size+2)
 
             # set the grid of subplots
             if np.all(t_obj.tipper == 0.0) == True:
@@ -534,8 +534,8 @@ class PlotResponse(object):
             # ------------------------------------------
             # make things look nice
             # set titles of the Z components
-            label_list = [['$Z_{xx}$'], ['$Z_{xy}$'],
-                          ['$Z_{yx}$'], ['$Z_{yy}$']]
+            label_list = [['Zxx'], ['Zxy'],
+                          ['Zyx'], ['Zyy']]
 #            for ax, label in zip(self.ax_list[0:4], label_list):
 ##                ax.set_title(label[0], fontdict={'size': self.font_size + 2,
 ##                                                 'weight': 'bold'})
@@ -749,14 +749,14 @@ class PlotResponse(object):
                 for axis in ['top', 'bottom', 'left', 'right']:
                     ax.spines[axis].set_linewidth(0.75)
                 
-                if self.plot_tipper==False:
+                if self.plot_tipper == False:
                     if aa < 4:
                         if self.plot_z == True:
                             ax.set_yscale('log', nonposy='clip')
                     else:
                         ax.set_xlabel('Period (s)', fontdict=fontdict)
                         
-                if aa < 8:
+                if self.plot_tipper == True and aa < 8:
 #                    ylabels[-1] = ''
 #                    ylabels[0] = ''
 #                    ax.set_yticklabels(ylabels)
@@ -788,7 +788,7 @@ class PlotResponse(object):
                 # set axes labels
                 if aa == 0:
                     if self.plot_z == False:
-                        ax.set_ylabel('Apparent Resistivity ($\mathbf{\Omega \cdot m}$)',
+                        ax.set_ylabel('Apparent Resistivity (Ohm-m)',
                                       fontdict=fontdict)
                     elif self.plot_z == True:
                         ax.set_ylabel('Re[Z (mV/km nT)]',
@@ -898,7 +898,7 @@ class PlotResponse(object):
         # --> set default font size
         plt.rcParams['font.size'] = self.font_size
 
-        fontdict = {'size': self.font_size + 2, 'weight': 'bold'}
+        fontdict = {'size': self.font_size + 2}
         if self.plot_z == True:
             h_ratio = [1, 1]
         elif self.plot_z == False:
@@ -970,7 +970,7 @@ class PlotResponse(object):
             self.fig = plt.figure(station, self.fig_size, dpi=self.fig_dpi)
             self.fig_list.append(self.fig)
             plt.clf()
-            self.fig.suptitle(str(station), fontdict=fontdict)
+            self.fig.suptitle(station, fotsize=self.font_size+2)
 
             # set the grid of subplots
             tipper_zero = (np.round(abs(t_obj.tipper.mean()), 4) == 0.0)
@@ -1122,12 +1122,13 @@ class PlotResponse(object):
                     if plot_tipper == False:
                         self.ax_list = [axrxy, axpxy]
                         line_list = [erxy[0], eryx[0]]
-                        label_list = ['$Z_{xy}$', '$Z_{yx}$']
+#                        label_list = ['Zxy', 'Zyx']
+                        label_list = ['Zxy', 'Zyx']
                     else:
                         self.ax_list = [axrxy, axpxy, axtr, axti]
                         line_list = [[erxy[0], eryx[0]],
                                      [ertx[0], erty[0]]]
-                        label_list = [['$Z_{xy}$', '$Z_{yx}$'],
+                        label_list = [['Zxy', 'Zyx'],
                                       ['$T_{x}$', '$T_{y}$']]
 
                 elif self.plot_component == 4:
@@ -1299,14 +1300,14 @@ class PlotResponse(object):
                     if plot_tipper == False:
                         self.ax_list = [axrxy, axrxx, axpxy, axpxx]
                         line_list = [[erxy[0], eryx[0]], [erxx[0], eryy[0]]]
-                        label_list = [['$Z_{xy}$', '$Z_{yx}$'],
-                                      ['$Z_{xx}$', '$Z_{yy}$']]
+                        label_list = [['Zxy', 'Zyx'],
+                                      ['Zxx', 'Zyy']]
                     else:
                         self.ax_list = [axrxy, axrxx, axpxy, axpxx, axtr, axti]
                         line_list = [[erxy[0], eryx[0]], [erxx[0], eryy[0]],
                                      [ertx[0], erty[0]]]
-                        label_list = [['$Z_{xy}$', '$Z_{yx}$'],
-                                      ['$Z_{xx}$', '$Z_{yy}$'],
+                        label_list = [['Zxy', 'Zyx'],
+                                      ['Zxx', 'Zyy'],
                                       ['$T_x$', '$T_y$']]
 
 
@@ -1335,7 +1336,7 @@ class PlotResponse(object):
                             plt.setp(ax.get_xticklabels(), visible=False)
                             if self.plot_z == False:
                                 ax.set_yscale('log', nonposy='clip')
-                                ax.set_ylabel('App. Res. ($\mathbf{\Omega \cdot m}$)',
+                                ax.set_ylabel('App. Res. (Ohm-m)',
                                               fontdict=fontdict)
                             elif self.plot_z == True:
                                 ax.set_ylabel('|Re[Z (mV/km nT)]|',
@@ -1368,7 +1369,7 @@ class PlotResponse(object):
                             ax.set_xlabel('Period (s)', fontdict=fontdict)
                         if aa == 0:
                             if self.plot_z == False:
-                                ax.set_ylabel('App. Res. ($\mathbf{\Omega \cdot m}$)',
+                                ax.set_ylabel('App. Res. (Ohm-m)',
                                               fontdict=fontdict)
                             elif self.plot_z == True:
                                 ax.set_ylabel('Re[Z (mV/km nT)]',
@@ -1433,7 +1434,7 @@ class PlotResponse(object):
                                 ax.set_ylim(self.tipper_limits)
                         if aa == 0:
                             if self.plot_z == False:
-                                ax.set_ylabel('App. Res . ($\mathbf{\Omega \cdot m}$)',
+                                ax.set_ylabel('App. Res . (Ohm-m)',
                                               fontdict=fontdict)
                             elif self.plot_z == True:
                                 ax.set_ylabel('Re[Z (mV/km nT)]',

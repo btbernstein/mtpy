@@ -128,7 +128,7 @@ class PlotRMSMaps(object):
         self.fig_size = kwargs.pop('fig_size', [7.75, 6.75])
         self.fig_dpi = kwargs.pop('fig_dpi', 200)
         self.fig_num = kwargs.pop('fig_num', 1)
-        self.font_dict = {'size': self.font_size + 2, 'weight': 'bold'}
+        self.font_dict = {'size': self.font_size + 2}
 
         self.marker = kwargs.pop('marker', 'o')
         self.marker_size = kwargs.pop('marker_size', 10)
@@ -204,7 +204,7 @@ class PlotRMSMaps(object):
         
         self.read_residual_fn()
         
-        font_dict = {'size': self.font_size + 2, 'weight': 'bold'}
+        font_dict = {'size': self.font_size + 2}
         rms_1 = 1. / self.rms_max
 
         if self.tick_locator is None:
@@ -345,10 +345,10 @@ class PlotRMSMaps(object):
         color_bar.set_label('Root-mean-square Error', fontdict=font_dict)
         if self.period_index == 'all':
             self.fig.suptitle('all periods',
-                              fontdict={'size': self.font_size + 3, 'weight': 'bold'})
+                              fontdict={'size': self.font_size + 3})
         else:            
             self.fig.suptitle('period = {0:.5g} s'.format(self.residual.period_list[self.period_index]),
-                              fontdict={'size': self.font_size + 3, 'weight': 'bold'})
+                              fontdict={'size': self.font_size + 3})
         self.ax = ax
         self.fig.show()
 
