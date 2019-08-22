@@ -279,6 +279,7 @@ class Model(object):
         self.pad_stretch_v = 1.2
 
         self.z1_layer = 10
+        self.z_layer_rounding = None
         self.z_target_depth = 50000
         self.z_bottom = 300000
 
@@ -605,12 +606,13 @@ class Model(object):
                                                target_depth,
                                                num_layers - num_pad)
 
-        # round any values less than 100 to the same d.p. as z1_layer
-        z_nodes = np.around(log_z[log_z < 100], 
-                            decimals=-int(np.floor(np.log10(first_layer))))
-        # round any values greater than or equal to 100 to the nearest 100
-        z_nodes = np.append(z_nodes, 
-                            np.around(log_z[log_z >= 100], decimals=-2))
+        if self.z_layer_rounding is not None:
+            z_nodes = np.around(log_z,decimals=self.z_layer_rounding)
+        else:
+            # round any values less than 100 to the same s.f. as z1_layer
+            z_nodes = np.around(log_z[log_z < 100], decimals=-int(np.floor(np.log10(self.z1_layer))))
+            # round any values greater than or equal to 100 to the nearest 100
+            z_nodes = np.append(z_nodes, np.around(log_z[log_z >= 100], decimals=-2))
 
         # index of top of padding
         itp = len(z_nodes) - 1
