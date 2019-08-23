@@ -196,6 +196,14 @@ class PlotRMSMaps(object):
             self.residual.get_rms()
         else:
             pass
+        
+    @property
+    def num_plots(self):
+        return int(len(self.plot_z_list)/2)
+    
+    @property
+    def max_plots(self):
+        return max([dd['plot_num'] for dd in self.plot_z_list])
 
     def plot(self):
         """
@@ -232,9 +240,10 @@ class PlotRMSMaps(object):
         plt.rcParams['figure.subplot.wspace'] = self.subplot_hspace
         plt.rcParams['figure.subplot.hspace'] = self.subplot_vspace
         self.fig = plt.figure(self.fig_num, self.fig_size, dpi=self.fig_dpi)
-
+        
         for p_dict in self.plot_z_list:
-            ax = self.fig.add_subplot(3, 2, p_dict['plot_num'], aspect='equal')
+            ax = self.fig.add_subplot(self.num_plots, 2, p_dict['plot_num'],
+                                      aspect='equal')
 
             ii = p_dict['index'][0]
             jj = p_dict['index'][1]
@@ -244,19 +253,19 @@ class PlotRMSMaps(object):
                 
                 if self.period_index == 'all':
                     r_arr = self.residual.rms_array[ridx]
-                    if p_dict['plot_num'] < 5:
+                    if 'Z' in p_dict['label']:
                         rms = r_arr['rms_z']
-                    else:
+                    elif 'T' in p_dict['label']:
                         rms = r_arr['rms_tip']
                 else:
                     r_arr = self.residual.residual_array[ridx]
                     
                     # calulate the rms self.residual/error
-                    if p_dict['plot_num'] < 5:
+                    if 'Z' in p_dict['label']:
                         rms = r_arr['z'][self.period_index, ii, jj].__abs__() / \
                               r_arr['z_err'][self.period_index, ii, jj].real
     
-                    else:
+                    elif 'T' in p_dict['label']:
                         rms = r_arr['tip'][self.period_index, ii, jj].__abs__() / \
                               r_arr['tip_err'][self.period_index, ii, jj].real
 
@@ -294,15 +303,15 @@ class PlotRMSMaps(object):
                         mew=.05,
                         zorder=3)
 
-            if p_dict['plot_num'] == 1 or p_dict['plot_num'] == 3:
+            if p_dict['plot_num'] % 2 == 1 and p_dict['plot_num'] != self.max_plots-1:
                 ax.set_ylabel('Latitude', fontdict=self.font_dict)
                 plt.setp(ax.get_xticklabels(), visible=False)
 
-            elif p_dict['plot_num'] == 2 or p_dict['plot_num'] == 4:
+            elif p_dict['plot_num'] % 2 == 0 and p_dict['plot_num'] != self.max_plots:
                 plt.setp(ax.get_xticklabels(), visible=False)
                 plt.setp(ax.get_yticklabels(), visible=False)
 
-            elif p_dict['plot_num'] == 6:
+            elif p_dict['plot_num'] == self.max_plots:
                 plt.setp(ax.get_yticklabels(), visible=False)
                 ax.set_xlabel('Longitude', fontdict=self.font_dict)
 

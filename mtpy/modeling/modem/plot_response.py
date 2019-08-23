@@ -17,7 +17,6 @@ from matplotlib.ticker import MultipleLocator
 from matplotlib.ticker import FormatStrFormatter, LogFormatterSciNotation
 from mtpy.imaging import mtplottools as mtplottools
 from mtpy.modeling.modem.data import Data
-import sys
 
 __all__ = ['PlotResponse']
 
@@ -190,10 +189,7 @@ class PlotResponse(object):
         self.ylabel_pad = kwargs.pop('ylabel_pad', 1.25)
 
         self.fig_list = []
-
-
-        # if self.plot_yn == 'y':
-        #     self.plot()
+        self.ax_list = []
 
     def plot(self):
         if self.plot_style == 1: # and has tipper data
@@ -354,8 +350,8 @@ class PlotResponse(object):
             # make figure
             self.fig = plt.figure(station, self.fig_size, dpi=self.fig_dpi)
             plt.clf()
-            self.fig.suptitle('Station {0}'.format(filter(str.isdigit, str(station)),
-                         fontdict=fontdict))
+            self.fig.suptitle('Station {0}'.format(station),
+                              fontdict=fontdict)
 
             # set the grid of subplots
             if np.all(t_obj.tipper == 0.0) == True:
@@ -740,46 +736,63 @@ class PlotResponse(object):
             for aa, ax in enumerate(self.ax_list):
                 #ax.tick_params(axis='y', pad=self.ylabel_pad)
                 ax.tick_params(which='both', width=.75)
+                ax.grid(which='major', ls=':', lw=.75, color=(.5, .5, .5))
+                ax.grid(which='minor', ls=':', lw=.55, color=(.75, .75, .75))
                 ax.set_xscale('log', nonposx='clip')
                 ax.xaxis.set_major_formatter(LogFormatterSciNotation())
                 ax.xaxis.set_minor_formatter(LogFormatterSciNotation())
+                ax.minorticks_on()
                 ax.set_xlim(xmin=10 ** (np.floor(np.log10(period[0]))) * 1.01,
                             xmax=10 ** (np.ceil(np.log10(period[-1]))) * .99)
                 ax.yaxis.set_label_coords(-.175, 0.5)
+                xlim = ax.get_xlim()
+                xticks = np.logspace(int(np.log10(xlim[0])),
+                                     int(np.log10(xlim[1])),
+                                     num=int((np.log10(xlim[1])-np.log10(xlim[0]))))
+                ax.set_xticks(xticks)
                 for axis in ['top', 'bottom', 'left', 'right']:
                     ax.spines[axis].set_linewidth(0.75)
                 
-                if self.plot_tipper==False:
+                if self.plot_tipper == False:
                     if aa < 4:
+                        plt.setp(ax.get_xticklabels(), visible=False)
                         if self.plot_z == True:
                             ax.set_yscale('log', nonposy='clip')
                     else:
                         ax.set_xlabel('Period (s)', fontdict=fontdict)
                         
-                if aa < 8:
+                if aa < 8 and self.plot_tipper == True:
 #                    ylabels[-1] = ''
 #                    ylabels[0] = ''
 #                    ax.set_yticklabels(ylabels)
                     plt.setp(ax.get_xticklabels(), visible=False)
                     if self.plot_z == True:
                         ax.set_yscale('log', nonposy='clip')
+#
+#                else:
+#                    ax.set_xlabel('Period (s)', fontdict=fontdict)
 
-                else:
-                    ax.set_xlabel('Period (s)', fontdict=fontdict)
-
-                if aa < 4 and self.plot_z is False:
-                    ax.set_yscale('log', nonposy='clip')
-                    ax.yaxis.set_major_formatter(LogFormatterSciNotation())
+                if aa < 4:
                     if aa == 0 or aa == 3:
                         ax.set_ylim(self.res_limits_d)
                     elif aa == 1 or aa == 2:
                         ax.set_ylim(self.res_limits_od)
+                    plt.setp(ax.get_xticklabels(), visible=False)
+                    ax.set_yscale('log', nonposy='clip')
+                    ax.yaxis.set_major_formatter(LogFormatterSciNotation())
+#                    ylabels = ax.get_yticklabels()
+#                    ylabels[0].set_text('')
+#                    ylabels[1].set_text('')
+#                    ax.set_yticklabels(ylabels)
+#                    print([yy.get_text() for yy in ax.get_yticklabels()])
+                    
+                    
                 ### Phase tick labels
                 if aa > 3 and aa < 8 and self.plot_z is False:
-                    y_min = ax.get_ylim()[0] - ax.get_ylim()[0] % 10
-                    y_max = ax.get_ylim()[1] - ax.get_ylim()[1] % -10
+                    y_min = ax.get_ylim()[0] - ax.get_ylim()[0] % 15
+                    y_max = ax.get_ylim()[1] - ax.get_ylim()[1] % -15
                     step = (y_max - y_min) / 5
-                    step -= step % -10
+                    step -= step % -15
                     y_ticks = np.arange(y_min, y_max, step)
                     y_tick_labels = ['{0:.0f}'.format(ii) for ii in y_ticks]
                     y_tick_labels[0] = ''
@@ -825,13 +838,6 @@ class PlotResponse(object):
 #                    print(ylabels)
                     plt.setp(ax.get_xticklabels(), visible=False)
                     
-                elif aa < 4 and self.plot_tipper is False:
-#                    ylabels[-1] = ''
-#                    ylabels[0] = ''
-#                    ax.set_yticklabels(ylabels)
-                    plt.setp(ax.get_xticklabels(), visible=False)
-                if aa < 4:
-                    ax.yaxis.set_major_formatter(LogFormatterSciNotation())
             
             for label, ax in zip(label_list, legend_ax_list):
                 ax.set_title(', '.join(label),
