@@ -813,7 +813,7 @@ class Zen3D(object):
         self._gps_flag_1 = np.int32(-2147483648)
         self._gps_f0 = self._gps_flag_0.tostring()
         self._gps_f1 = self._gps_flag_1.tostring()
-        self.gps_flag = self._gps_f0+self._gps_f1
+        self.gps_flag = self._gps_f0 + self._gps_f1
 
         self._gps_dtype = np.dtype([('flag0', np.int32),
                                     ('flag1', np.int32),
@@ -836,6 +836,7 @@ class Zen3D(object):
         self._block_len = 2**16
         # the number in the cac files is for volts, we want mV
         self._counts_to_mv_conversion = 9.5367431640625e-10
+        self.num_sec_to_skip = 3
 
         self.units = 'counts'
 
@@ -1000,6 +1001,7 @@ class Zen3D(object):
             self._gps_bytes = self._gps_stamp_length/4
             self._gps_flag_0 = -1
             self._block_len = int(self._gps_stamp_length+self.df*4)
+            self.gps_flag = self._gps_flag_0.tostring()
 
         else:
             return
@@ -1212,18 +1214,19 @@ class Zen3D(object):
                     break
                 data[data_count:data_count+len(test_str)] = test_str
                 data_count += test_str.size
-                
-
+             
+        self.raw_data = data.copy()
         # find the gps stamps
-        gps_stamp_find = np.where(data == self._gps_flag_0)[0]
-
+        gps_stamp_find = self.get_gps_stamp_index(data, self.header.old_version)
+        
         # skip the first two stamps and trim data
         try:
-            data = data[gps_stamp_find[3]:]
+            data = data[gps_stamp_find[self.num_sec_to_skip]:]
         except IndexError:
             raise ZenGPSError("Data is bad, cannot open file {0}".format(self.fn))
-
-        gps_stamp_find = np.where(data == self._gps_flag_0)[0]
+        
+        # find gps stamps of the trimmed data
+        gps_stamp_find = self.get_gps_stamp_index(data, self.header.old_version)
 
         self.gps_stamps = np.zeros(len(gps_stamp_find), dtype=self._gps_dtype)
 
@@ -1232,7 +1235,7 @@ class Zen3D(object):
                 data[gps_find+1]
             except IndexError:
                 pass
-                print(u'***Failed gps stamp***')
+                print('***Failed gps stamp***')
                 print('    stamp {0} out of {1}'.format(ii+1, 
                                                         len(gps_stamp_find)))
                 break
@@ -1248,11 +1251,25 @@ class Zen3D(object):
                 elif ii == 0:
                     self.gps_stamps[ii]['block_len'] = 0
                 data[int(gps_find):int(gps_find+self._gps_bytes)] = 0
-#
 
-        # trim the data after taking out the gps stamps
+        # fill the time series object
+        self._fill_ts_obj(data[np.nonzero(data)])
+        
+        print('    found {0} GPS time stamps'.format(self.gps_stamps.shape[0]))
+        print('    found {0} data points'.format(self.ts_obj.ts.data.size))
+        
+        # time it
+        et = time.time()
+        print('--> Reading data took: {0:.3f} seconds'.format(et-st))
+        
+    #=================================================
+    def _fill_ts_obj(self, ts_data):
+        """
+        fill time series object 
+        """
+        # fill the time series object
         self.ts_obj = mtts.MTTS()
-        self.ts_obj.ts = data[np.nonzero(data)]
+        self.ts_obj.ts = ts_data
 
         # convert data to mV
         self.convert_counts_to_mv()
@@ -1289,17 +1306,27 @@ class Zen3D(object):
         self.ts_obj.gain = self.header.ad_gain
         self.ts_obj.chn_num = self.metadata.ch_number
         self.ts_obj.fn = os.path.basename(self.fn)
-
-        self.validate_time_blocks()
-        self.convert_gps_time()
-        #self.check_start_time()
+    
+    #=================================================
+    def get_gps_stamp_index(self, ts_data, old_version=False):
+        """
+        locate the time stamps in a given time series.  
         
-        print('    found {0} GPS time stamps'.format(self.gps_stamps.shape[0]))
-        print('    found {0} data points'.format(self.ts_obj.ts.data.size))
+        Looks for gps_flag_0 first, if the file is newer, then makes sure the
+        next value is gps_flag_1
         
-        # time it
-        et = time.time()
-        print('--> Reading data took: {0:.3f} seconds'.format(et-st))
+        :returns: list of gps stamps indicies
+        """
+        
+        # find the gps stamps
+        gps_stamp_find = np.where(ts_data == self._gps_flag_0)[0]
+        
+        if old_version is False:
+            gps_stamp_find = [gps_find for gps_find in gps_stamp_find 
+                              if ts_data[gps_find+1] == self._gps_flag_1]
+            
+        return gps_stamp_find
+        
         
     #=================================================
     def trim_data(self):

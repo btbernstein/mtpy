@@ -1829,49 +1829,55 @@ class General(object):
     def __init__(self):
         pass
     
-    def to_xml(self, parent_et, exclude_none=True):
+    def to_xml(self, parent_et, exclude_none=True, xml_dict=None):
         """
         convert to xml format
         """
-
-        for key, value in sorted(self.__dict__.items(),
-                                 key=lambda item:(item[0][0].replace('_', '') +
-                                                  item[0][1:]).lower()):
-            if value is None and exclude_none:
-                continue
-            
-            if isinstance(getattr(self, key), (Location, Instrument, Person,
-                          Software, Citation, DataQuality, FieldNotes, 
-                          Copyright, Processing)):
-                if 'electrode' in key.lower():
-                    k = 'Dipole'
-                    attr = key.split('_')[1]
-                    k_element = ET.SubElement(parent_et, k)
-                    k_element.set('name', attr.upper())
-
-                elif 'magnetometer' in key.lower():
-                    k = 'Magnetometer'
-                    attr = key.split('_')[1]
-                    k_element = ET.SubElement(parent_et, k)
-                    k_element.set('name', attr.upper())
-                else:
-                    k_element = ET.SubElement(parent_et, key)
-                getattr(self, key).to_xml(k_element)
-            
-            elif key[0] == '_':
-                try:
-                    k = key[1:]
-                    v = getattr(self, k)
-                    new_element = ET.SubElement(parent_et, k)
-                    new_element.text = str(v)
-                    
-                except AttributeError:
+        if xml_dict is None:
+            for key, value in sorted(self.__dict__.items(),
+                                     key=lambda item:(item[0][0].replace('_', '') +
+                                                      item[0][1:]).lower()):
+                if value is None and exclude_none:
                     continue
-            else:
-                new_element = ET.SubElement(parent_et, key)
-                new_element.text = str(value)
                 
-        return 
+                if isinstance(getattr(self, key), (Location, Instrument, Person,
+                              Software, Citation, DataQuality, FieldNotes, 
+                              Copyright, Processing)):
+                    if 'electrode' in key.lower():
+                        k = 'Dipole'
+                        attr = key.split('_')[1]
+                        k_element = ET.SubElement(parent_et, k.capitalize())
+                        k_element.set('name', attr.upper())
+    
+                    elif 'magnetometer' in key.lower():
+                        k = 'Magnetometer'
+                        attr = key.split('_')[1]
+                        k_element = ET.SubElement(parent_et, k.capitalize())
+                        k_element.set('name', attr.upper())
+                    else:
+                        k_element = ET.SubElement(parent_et, key.capitalize())
+                    getattr(self, key).to_xml(k_element)
+                
+                elif key[0] == '_':
+                    try:
+                        k = key[1:]
+                        v = getattr(self, k)
+                        new_element = ET.SubElement(parent_et, k.capitalize())
+                        new_element.text = str(v)
+                        
+                    except AttributeError:
+                        continue
+                else:
+                    new_element = ET.SubElement(parent_et, key.capitalize())
+                    new_element.text = str(value)
+        else:
+            for xml_d in xml_dict:
+                new_element = ET.SubElement(parent_et, xml_d['key'])
+                new_element.text = str(xml_d['value'])
+                if xml_d['attr'] is not None:
+                    new_element.attrib = xml_d['attr']
+                    
+            return 
 # =============================================================================
 # Site details
 # =============================================================================
@@ -1988,6 +1994,10 @@ class Location(General):
         self.utm_zone = None
         self.elev_units = 'm'
         self.coordinate_system = 'Geographic North'
+        
+        self._xml_dict = {'latitude':{'key':'latitude', 'attr':None, 'value':self.latitude},
+                          'longitude':{'key':'longitude', 'attr':None, 'value':self.longitude},
+                          'elevation':{'key':'elevation', 'attr':'elev_units', 'value':self.elevation}}
 
         for key in list(kwargs.keys()):
             setattr(self, key, kwargs[key])
@@ -2067,6 +2077,20 @@ class Location(General):
 
         self.latitude = ll_point[0]
         self.longitude = ll_point[1]
+    
+#    def to_xml(self, parent_et, exclude_utm=True):
+#        """
+#        add xml infor to parent tree
+#        """
+#        
+#        for key, value in sorted(self.__dict__.items, )
+#        
+#        
+#        
+        
+#    @General.to_xml
+#    def decorate_xml(self, parent_et):
+#        print('xml decorator')
         
 # ==============================================================================
 # Field Notes
