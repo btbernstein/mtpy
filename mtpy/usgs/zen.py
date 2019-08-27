@@ -835,7 +835,7 @@ class Zen3D(object):
         self._leap_seconds = 18
         self._block_len = 2**16
         # the number in the cac files is for volts, we want mV
-        self._counts_to_mv_conversion = 9.5367431640625e-10
+        self._counts_to_mv_conversion = 9.5367431640625e-10 * 1E3
         self.num_sec_to_skip = 3
 
         self.units = 'counts'
@@ -1674,7 +1674,8 @@ class Zen3D(object):
         # I have no idea why this works but it does
         if self.component in ['ex', 'ey']:
             e_scale = float(self.dipole_len)
-            self.ts_obj.ts.data /= ((e_scale/100)*2*np.pi)
+            self.ts_obj.ts.data /= e_scale/1000.
+#            self.ts_obj.ts.data /= ((e_scale/100)*2*np.pi)
             print('Using scales {0} = {1} m'.format(self.metadata.ch_cmp.upper(),
                                                     e_scale))
             self.ts_obj.units = 'mV/km'

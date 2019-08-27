@@ -1648,20 +1648,20 @@ class ZongeMTAvg():
             raise IOError('{0} does not exist, check file'.format(avg_fn))
         
         self.comp = os.path.basename(avg_fn)[0]
-        afid = file(avg_fn)
-        alines = afid.readlines()
+        with open(avg_fn, 'r') as fid:
+            alines = fid.readlines()
         self.comp_flag = {'zxx':False, 'zxy':False, 'zyx':False, 'zyy':False,
                           'tzx':False, 'tzy':False}
         
         if not self.comp_dict:
             # check to see if all 4 components are in the .avg file
             if len(alines) > 140:  
-                self.comp_dict = dict([(ckey, np.zeros(len(alines)/4, 
+                self.comp_dict = dict([(ckey, np.zeros(int(len(alines)/4), 
                                                        dtype=self.info_dtype))
                                         for ckey in list(self.comp_flag.keys())])
             # if there are only 2
             else:
-                self.comp_dict = dict([(ckey, np.zeros(len(alines)/2, 
+                self.comp_dict = dict([(ckey, np.zeros(int(len(alines)/2), 
                                                        dtype=self.info_dtype))
                                         for ckey in list(self.comp_flag.keys())])
         self.comp_lst_z = []
@@ -1686,7 +1686,7 @@ class ZongeMTAvg():
                         self.__dict__[akey] = float(alst[1])
                     except ValueError:
                         self.__dict__[akey] = alst[1]
-                    #self.header_dict[alst[0][1:]] = alst[1]
+                    #self.header_dict[alst[0][1:]] = al            print(aline)st[1]
             elif aline[0] == 'S':
                 pass
             # read the data line.
@@ -1821,10 +1821,11 @@ class ZongeMTAvg():
                     z[:, ii, jj] = zr+zi*1j
 
                 z_err[:,ii, jj] = self.comp_dict[ikey]['ares.%err'][:nz]*.005 
-                    
+
+            self.Z.freq = freq
             self.Z.z = z
             self.Z.z_err = z_err
-            self.Z.freq = freq
+            
             
         self.Z.z = np.nan_to_num(self.Z.z)
         self.Z.z_err = np.nan_to_num(self.Z.z_err)
@@ -1917,9 +1918,10 @@ class ZongeMTAvg():
                 tipper_err[:, ii, jj] = self.comp_dict[ikey]['ares.%err'][:nz]*\
                                                      .05*np.sqrt(tzr**2+tzi**2)
                     
+            self.Tipper.freq = sorted(self.freq_dict_x.keys())
             self.Tipper.tipper = tipper
             self.Tipper.tipper_err = tipper_err
-            self.Tipper.freq = sorted(self.freq_dict_x.keys())
+            
             
         self.Tipper.tipper = np.nan_to_num(self.Tipper.tipper)
         self.Tipper.tipper_err = np.nan_to_num(self.Tipper.tipper_err)

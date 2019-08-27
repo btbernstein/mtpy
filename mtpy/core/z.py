@@ -1171,11 +1171,14 @@ class Tipper(object):
         if freq_arr is not None:
             self._freq = np.array(freq_arr)
 
-        if self._freq.size is not len(self.tipper):
-            self._logger.info('length of freq list/array not correct' + \
-                              ' (%ii instead of %ii)' % (self._freq.size, len(self.tipper)))
-            return
+        try:
+            if self._freq.size is not len(self.tipper):
+                self._logger.info('length of freq list/array not correct' + \
+                                  ' (%ii instead of %ii)' % (self._freq.size, len(self.tipper)))
+                return
 
+        except TypeError:
+            pass
         # for consistency recalculate amplitude and phase
         self.compute_amp_phase()
 
