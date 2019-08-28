@@ -1420,7 +1420,7 @@ class Z3D2EDI(object):
         elif type(script_fn_list) is str:
             birrp.run(self.birrp_exe, script_fn_list)
 
-            output_path = os.path.dirname(script_fn)
+            output_path = os.path.dirname(script_fn_list)
             self.edi_fn = self.write_edi_file(output_path,
                                       survey_config_fn=self.survey_config_fn,
                                       birrp_config_fn=self.birrp_config_fn)
