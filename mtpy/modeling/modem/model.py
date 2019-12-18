@@ -1260,6 +1260,8 @@ class Model(object):
 
         self._logger.info('Wrote file to: {0}'.format(self.model_fn))
 
+        return self.model_fn
+
     def read_model_file(self, model_fn=None):
         """
         read an initial file and return the pertinent information including
@@ -1419,6 +1421,7 @@ class Model(object):
     def read_ws_model_file(self, ws_model_fn):
         """
         reads in a WS3INV3D model file
+        FZ Note: This function does not appear being used anywhere
         """
 
         ws_model_obj = ws.WSModel(ws_model_fn)
@@ -1973,8 +1976,7 @@ class Model(object):
             fmt[:2] = ['%.6f','%.6f']
         else:
             xp, yp = x, y
-            
-            
+
         resvals = self.res_model[clip[1]:ysize-clip[1],clip[0]:xsize-clip[0]]
             
         return xp, yp, z, resvals, fmt
@@ -2016,12 +2018,10 @@ class Model(object):
         savepath = os.path.join(savepath,outfile_basename)
         if not os.path.exists(savepath):
             os.mkdir(savepath)
-        
 
         xp, yp, z, resvals, fmt = self._get_xyzres(location_type,origin,model_epsg,model_utm_zone,clip)
         xp = xp[:,:,0].flatten()
         yp = yp[:,:,0].flatten()
-        
 
         # make depth indices into a list
         if depth_index == 'all':

@@ -652,8 +652,8 @@ class PTShapeFile(object):
                     dpt = modem_data_obj.mt_dict[key].pt
                     mpt = modem_resp_obj.mt_dict[key].pt
                 except KeyError:
-                    print 'No information found for {0} in {1}'.format(key,
-                                                    modem_resp_fn)
+                    print ('No information found for {0} in {1}'.format(key,
+                                                    modem_resp_fn))
                     continue
 
                 # calculate the residual pt

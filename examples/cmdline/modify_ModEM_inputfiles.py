@@ -21,7 +21,7 @@ from mtpy.modeling.modem import Model
 from mtpy.modeling.modem import Data
 from mtpy.modeling.modem import Covariance
 from mtpy.core.edi import Edi
-from mtpy.utils.calculator import get_period_list
+from mtpy.utils.calculator import get_period_list, nearest_index
 
 
 def build_modem_inputfiles(edi_path, output_path):
@@ -114,19 +114,21 @@ def build_modem_inputfiles(edi_path, output_path):
                )
 
     mo.make_mesh()
-    mo.write_model_file(save_path=workdir)
+    modelfile = mo.write_model_file(save_path=workdir)
 
     # add topography to res model
     # if the number of air layers is zero - bathymetry only will be added.
     # if the number of air layers is nonzero - topography will be added, discretised into that number of cells
     # mo.add_topography_to_model2(r'C:\mtpywin\mtpy\examples\data\AussieContinent_etopo1.asc')
     mo.add_topography_to_model2(r'C:\Githubz\mtpy\examples\data\AussieContinent_etopo1.asc')
-    mo.write_model_file(save_path=workdir)
+
+    modelfile2 = mo.write_model_file(save_path=workdir)
 
     # update data elevations
     do.project_stations_on_topography(mo)
 
     # show the mesh
+    mo.plot_mesh()
     mo.plot_sealevel_resistivity()
 
     co = Covariance()
@@ -135,7 +137,39 @@ def build_modem_inputfiles(edi_path, output_path):
     co.smoothing_z = 0.4
     co.write_covariance_file(model_fn=mo.model_fn)
 
+    print("model files ", modelfile, modelfile2)
+    return modelfile
 
+def modify_model_file(modelfn, min_depth_meter, max_depth_meter):
+    """
+    Modify the model file according to the depth and known geophysics information
+    :param modelfn: the path to the model file to be read-in
+    :min_depth_meter:  min depth in meters=1000
+    :max_depth_meter:  max depth in meters=5000
+    :return: modified new model file
+    """
+
+    mobj = Model()
+    mobj.read_model_file(model_fn= modelfn)
+
+    # begin to change the values of mobj
+    #mobj.res_model[:, :, 2:-2] = 1.0 # set the third layer to second last layer all =1.0 log1=0
+
+    # depth interval and spatial extent=?
+
+    min_index = nearest_index(min_depth_meter, mobj.grid_z)
+    max_index = nearest_index(max_depth_meter, mobj.grid_z)
+
+    print ("****** Min, Max Indices ==", min_index, max_index)
+
+    mobj.res_model[:, :, min_index:max_index] = 1.0
+
+    # make a new base name for the modified model file
+    mobj.model_fn_basename = "%s_modified"% modelfn
+    # mobj.save_path = r"c:/temp"
+    new_out_file=mobj.write_model_file()
+
+    return new_out_file
 # ====================================================================================================
 # Entry point of this script
 # How to run (Example):
@@ -151,4 +185,10 @@ if __name__ == "__main__":
         print(USAGE)
         sys.exit(1)
 
-    build_modem_inputfiles(sys.argv[1], sys.argv[2])
+    path2mfile = build_modem_inputfiles(sys.argv[1], sys.argv[2])
+
+    print("The model file %s has been created"%path2mfile)
+
+    new_mfile = modify_model_file(path2mfile, 100,500)
+
+    print("The NEW modified model file %s has been created" % new_mfile)

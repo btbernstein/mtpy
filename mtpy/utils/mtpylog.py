@@ -66,7 +66,7 @@ class MtPyLog(object):
                 configfile)
 
     @staticmethod
-    def get_mtpy_logger(loggername=''):
+    def get_mtpy_logger(loggername='', loglevel=logging.WARN):
         """
         create a named logger (try different)
         :param loggername: the name (key) of the logger object in this Python interpreter.
@@ -75,6 +75,7 @@ class MtPyLog(object):
 
         # configured explicitely specifically in logging.conf
         logger = logging.getLogger(loggername)
+        logger.setLevel(loglevel)
 
         return logger
 

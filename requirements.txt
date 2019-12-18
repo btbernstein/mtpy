@@ -1,4 +1,4 @@
-sphinx==1.8.3
+sphinx>=1.8.3
 matplotlib>=2.0.2
 numpy
 scipy

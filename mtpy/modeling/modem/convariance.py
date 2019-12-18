@@ -12,10 +12,11 @@ ModEM
 import os
 
 import numpy as np
-
+import logging
 from mtpy.utils.mtpylog import MtPyLog
 from .exception import CovarianceError
 from .model import Model
+
 
 try:
     from evtk.hl import gridToVTK
@@ -33,7 +34,9 @@ class Covariance(object):
     """
 
     def __init__(self, grid_dimensions=None, **kwargs):
-        self._logger = MtPyLog.get_mtpy_logger(self.__class__.__name__)
+        #self._logger = MtPyLog.get_mtpy_logger(self.__class__.__name__,loglevel=logging.INFO)
+        self._logger = logging.getLogger(self.__class__.__name__)
+        self._logger.setLevel(logging.INFO)
 
         self.grid_dimensions = grid_dimensions
         self.smoothing_east = 0.3
@@ -83,13 +86,14 @@ class Covariance(object):
 
         if model_fn is not None:
             mod_obj = Model()
+            self._logger.info('Reading {0} for covariance file'.format(model_fn))
             mod_obj.read_model_file(model_fn)
 
             # update save_path from model path if not provided separately
             if save_path is None:
                 save_path = os.path.dirname(model_fn)
 
-            print('Reading {0}'.format(model_fn))
+
             self.grid_dimensions = mod_obj.res_model.shape
             if self.mask_arr is None:
                 self.mask_arr = np.ones_like(mod_obj.res_model)
