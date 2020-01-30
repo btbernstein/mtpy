@@ -507,13 +507,9 @@ class Z3DMetadata(object):
         self.survey_type = None
         self.unit_length = None
         self.station = None
-<<<<<<< HEAD
-        
-=======
         self.count = 0
         self.notes = None
 
->>>>>>> bb1a88f8dc15bf15768bf6aafccc2584cd8133dd
         for key in kwargs:
             setattr(self, key, kwargs[key])
 
@@ -897,7 +893,8 @@ class Zen3D(object):
         """
         sampling rate
         """
-        self.header.ad_rate = float(sampling_rate)
+        if sampling_rate is not None:
+            self.header.ad_rate = float(sampling_rate)
 
     @property
     def zen_schedule(self):
