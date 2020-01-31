@@ -11,7 +11,7 @@ import numpy as np
 import os
 import time
 import warnings
-import dateutil, datetime
+from dateutil import parser
 
 import mtpy.core.edi as MTedi
 import mtpy.core.z as MTz
@@ -2036,11 +2036,11 @@ class Site(object):
         if date_str in [None, 'None', 'none', 'NONE']:
             return None
         try:
-            return dateutil.parser.parse(date_str)
-        except dateutil.parser.ParserError:
+            return parser.parse(date_str)
+        except parser.ParserError:
             try:
-                return dateutil.parser.parse(date_str, dayfirst=True)
-            except dateutil.parser.ParserError as error:
+                return parser.parse(date_str, dayfirst=True)
+            except parser.ParserError as error:
                 raise ValueError(error)
             
 
