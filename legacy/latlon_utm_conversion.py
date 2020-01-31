@@ -7,7 +7,7 @@ from math import pi, sin, cos, tan, sqrt
 # LatLong- UTM conversion..h
 # definitions for lat/long to UTM and UTM to lat/lng conversions
 # include <string.h>
-from mtpy.utils.decorator import deprecated
+from mtpy.utils.decorator2 import deprecated
 
 _deg2rad = pi / 180.0
 _rad2deg = 180.0 / pi

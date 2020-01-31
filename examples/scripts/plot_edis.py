@@ -28,7 +28,7 @@ except:
 os.chdir(mtpy_path) # change to your path to your mtpy installation
 
 edi_path = os.path.join(mtpy_path, 'examples', 'data', 'edi_files')
-edi_path = r"C:/Githubz/mtpy/data/edifiles/"
+#edi_path = r"C:/Githubz/mtpy/data/edifiles/"
 edi_list = [os.path.join(edi_path, ff) for ff in os.listdir(edi_path) if ff.endswith('.edi')]
 
 temp_dir = tempfile.gettempdir()

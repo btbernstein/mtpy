@@ -22,7 +22,7 @@ import glob
 import numpy as np
 import mtpy.core.mt as mt
 import mtpy.imaging.mtplottools as mtplottools
-from mtpy.utils.decorator import deprecated
+from mtpy.utils.decorator2 import deprecated
 from mtpy.utils.matplotlib_utils import gen_hist_bins
 
 from logging import DEBUG, INFO,ERROR, WARNING
