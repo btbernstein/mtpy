@@ -17,6 +17,7 @@ import datetime
 import numpy as np
 
 import mtpy.utils.gis_tools as gis_tools
+from mtpy.core.io import objects as mtobjects
 import mtpy.utils.exceptions as MTex
 import mtpy.utils.filehandling as MTfh
 import mtpy.core.z as MTz

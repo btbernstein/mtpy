@@ -497,6 +497,11 @@ class Z3DMetadata(object):
         self.ch_number = None
         self.ch_xyz1 = None
         self.ch_xyz2 = None
+        self.ch_antsn = None
+        self.ch_cres = None
+        self.ch_vmax = None
+        self.ch_sp = None
+        self.ch_stn = None
         self.gdp_operator = None
         self.gdp_progver = None
         self.job_by = None
