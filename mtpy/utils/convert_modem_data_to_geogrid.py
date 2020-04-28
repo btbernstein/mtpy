@@ -29,6 +29,8 @@ from scipy.interpolate import RegularGridInterpolator
 from mtpy.modeling.modem import Model, Data
 from mtpy.utils import gis_tools
 from mtpy.utils.mtpylog import MtPyLog
+from mtpy.utils.modem_utils import (get_centers, strip_padding, strip_resgrid,
+                                    get_depth_indicies, list_depths)
 
 _logger = MtPyLog.get_mtpy_logger(__name__)
 
@@ -116,55 +118,6 @@ def array2geotiff_writer(filename, origin, pixel_width, pixel_height, data,
     return filename, ascii_filename
 
 
-def _get_centers(arr):
-    """Get the centers from an array of cell boundaries.
-
-    Args:
-        arr (np.ndarray): An array of cell boundaries.
-
-    Returns:
-        np.ndarray: An array of cell centers.
-    """
-    return np.mean([arr[:-1], arr[1:]], axis=0)
-
-
-def _strip_padding(arr, pad, keep_start=False):
-    """Strip padding cells from grid data. Padding cells occur at the
-    the start and end of north and east grid axes, and at the end of
-    grid depth axis.
-
-    Note we handle the special case of `pad=0` by returning the data
-    untouched (a `slice(None)` will do nothing when used as an index
-    slice).
-
-    Args:
-        arr (np.ndarray): Axis of grid data (east, north or depth).
-        pad (int): Number of padding cells being stripped.
-        keep_start (bool): If True, padding is only stripped from the
-            end of the data. Intended for use with depth axis.
-
-    Return:
-        np.ndarray: A copy of `arr` with padding cells removed.
-    """
-    if keep_start:
-        pad = slice(None) if pad == 0 else slice(None, -pad)
-    else:
-        pad = slice(None) if pad == 0 else slice(pad, -pad)
-
-    return arr[pad]
-
-
-def _strip_resgrid(res_model, y_pad, x_pad, z_pad):
-    """Similar to `_strip_padding` but handles the case of stripping
-    padding from a 3D resistivity model.
-
-    """
-    y_pad = slice(None) if y_pad == 0 else slice(y_pad, -y_pad)
-    x_pad = slice(None) if x_pad == 0 else slice(x_pad, -x_pad)
-    z_pad = slice(None) if z_pad == 0 else slice(None, -z_pad)
-    return res_model[y_pad, x_pad, z_pad]
-
-
 def _get_gdal_origin(centers_east, east_cell_size, mesh_center_east,
                      centers_north, north_cell_size, mesh_center_north):
     """Works out the upper left X, Y points of a grid.
@@ -194,39 +147,6 @@ def _build_target_grid(centers_east, cell_size_east, centers_north, cell_size_no
                        np.arange(centers_north[0], centers_north[-1], cell_size_north))
 
 
-def _get_depth_indicies(centers_z, depths):
-    """Finds the indicies for the elements closest to those specified
-    in a given list of depths.
-
-    Args:
-        centers_z (np.ndarray): Grid centers along the Z axis (i.e.
-            available depths in our model).
-        depths (list of int): A list of depths to retrieve indicies
-            for. If None or empty, a list of all indicies is returned.
-
-    Returns:
-        set: A set of indicies closest to provided depths.
-        list: If `depths` is None or empty, a list of all indicies.
-    """
-    def _nearest(array, value):
-        """Get index for nearest element to value in an array.
-        """
-        idx = np.searchsorted(array, value, side="left")
-        if idx > 0 and (idx == len(array)
-                or math.fabs(value - array[idx - 1]) < math.fabs(value - array[idx])):
-            return idx - 1
-        else:
-            return idx
-
-    if depths:
-        res = {_nearest(centers_z, d) for d in depths}
-        print("Slices closest to requested depths: {}".format([centers_z[di] for di in res]))
-        return res
-    else:
-        print("No depths provided, getting all slices...")
-        return range(len(centers_z))
-
-
 def _interpolate_slice(ce, cn, resgrid, depth_index, target_gridx, target_gridy, log_scale):
     """Interpolates the reisistivty model in log10 space across a grid.
 
@@ -250,26 +170,6 @@ def _interpolate_slice(ce, cn, resgrid, depth_index, target_gridx, target_gridy,
     if not log_scale:
         res_slice **= 10
     return res_slice
-
-
-def list_depths(model_file, zpad=None):
-    """
-    Return a list of available depth slices in the model.
-
-    Args:
-        model_file (str): Path to ModEM .rho file.
-        zpad (int, optional): Number of padding slices to remove from
-            bottom of model. If None, model pad_z value is used.
-
-    Returns:
-        list of float: A list of available depth slices.
-    """
-    model = Model()
-    model.read_model_file(model_fn=model_file)
-
-    cz = _get_centers(model.grid_z)
-    zpad = model.pad_z if zpad is None else zpad
-    return cz[:-zpad]
 
 
 def create_geogrid(data_file, model_file, out_dir, x_pad=None, y_pad=None, z_pad=None,
@@ -337,9 +237,9 @@ def create_geogrid(data_file, model_file, out_dir, x_pad=None, y_pad=None, z_pad
 
     # Get the center point of the model grid cells to use as points
     #  in a resistivity grid.
-    ce = _get_centers(model.grid_east)
-    cn = _get_centers(model.grid_north)
-    cz = _get_centers(model.grid_z)
+    ce = get_centers(model.grid_east)
+    cn = get_centers(model.grid_north)
+    cz = get_centers(model.grid_z)
 
     print("Grid shape with padding: E = {}, N = {}, Z = {}"
           .format(ce.shape, cn.shape, cz.shape))
@@ -352,9 +252,9 @@ def create_geogrid(data_file, model_file, out_dir, x_pad=None, y_pad=None, z_pad
     print("Stripping padding...")
 
     # Remove padding cells from the grid
-    ce = _strip_padding(ce, x_pad)
-    cn = _strip_padding(cn, y_pad)
-    cz = _strip_padding(cz, z_pad, keep_start=True)
+    ce = strip_padding(ce, x_pad)
+    cn = strip_padding(cn, y_pad)
+    cz = strip_padding(cz, z_pad, keep_start=True)
 
     print("Grid shape without padding: E = {}, N = {}, Z = {}"
           .format(ce.shape, cn.shape, cz.shape))
@@ -372,9 +272,9 @@ def create_geogrid(data_file, model_file, out_dir, x_pad=None, y_pad=None, z_pad
 
     target_gridx, target_gridy = _build_target_grid(ce, x_res, cn, y_res)
 
-    resgrid_nopad = _strip_resgrid(model.res_model, y_pad, x_pad, z_pad)
+    resgrid_nopad = strip_resgrid(model.res_model, y_pad, x_pad, z_pad)
 
-    indicies = _get_depth_indicies(cz, depths)
+    indicies = get_depth_indicies(cz, depths)
 
     for di in indicies:
         print("Writing out slice {:.0f}m...".format(cz[di]))
