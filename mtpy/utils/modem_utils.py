@@ -1,6 +1,11 @@
+import math
+
 import numpy as np
 
 from mtpy.modeling.modem import Model
+from mtpy.utils.mtpylog import MtPyLog
+
+_logger = MtPyLog.get_mtpy_logger(__name__)
 
 def get_centers(arr):
     """Get the centers from an array of cell boundaries.
@@ -73,19 +78,19 @@ def list_depths(model, zpad=None):
     return cz[:-zpad]
 
 
-def get_depth_indicies(centers_z, depths):
-    """Finds the indicies for the elements closest to those specified
+def get_depth_indices(centers_z, depths):
+    """Finds the indices for the elements closest to those specified
     in a given list of depths.
 
     Args:
         centers_z (np.ndarray): Grid centers along the Z axis (i.e.
             available depths in our model).
-        depths (list of int): A list of depths to retrieve indicies
-            for. If None or empty, a list of all indicies is returned.
+        depths (list of int), int, None: A list of depths,
+            or single depth, to retrieve indices for. Providing 'None'
+            will return all indices.
 
     Returns:
-        set: A set of indicies closest to provided depths.
-        list: If `depths` is None or empty, a list of all indicies.
+        set: A set of indices closest to provided depths.
     """
     def _nearest(array, value):
         """Get index for nearest element to value in an array.
@@ -98,11 +103,14 @@ def get_depth_indicies(centers_z, depths):
             return idx
 
     if depths:
-        res = {_nearest(centers_z, d) for d in depths}
-        print("Slices closest to requested depths: {}".format([centers_z[di] for di in res]))
+        if isinstance(depths, list) or isinstance(depths, tuple):
+            res = {_nearest(centers_z, d) for d in depths}
+        else:
+            res = {_nearest(centers_z, depths)}
+        _logger.info("Slices closest to requested depths: {}".format([centers_z[di] for di in res]))
         return res
     else:
-        print("No depths provided, getting all slices...")
-        return range(len(centers_z))
+        _logger.info("No depths provided, getting all slices...")
+        return set(range(len(centers_z)))
 
 
