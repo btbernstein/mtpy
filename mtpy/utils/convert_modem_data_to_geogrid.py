@@ -30,7 +30,7 @@ from mtpy.modeling.modem import Model, Data
 from mtpy.utils import gis_tools
 from mtpy.utils.mtpylog import MtPyLog
 from mtpy.utils.modem_utils import (get_centers, strip_padding, strip_resgrid,
-                                    get_depth_indicies, list_depths)
+                                    get_depth_indices, list_depths)
 
 _logger = MtPyLog.get_mtpy_logger(__name__)
 
@@ -274,9 +274,9 @@ def create_geogrid(data_file, model_file, out_dir, x_pad=None, y_pad=None, z_pad
 
     resgrid_nopad = strip_resgrid(model.res_model, y_pad, x_pad, z_pad)
 
-    indicies = get_depth_indicies(cz, depths)
+    indices = get_depth_indices(cz, depths)
 
-    for di in indicies:
+    for di in indices:
         print("Writing out slice {:.0f}m...".format(cz[di]))
         data = _interpolate_slice(ce, cn, resgrid_nopad, di,
                                   target_gridx, target_gridy, log_scale)
