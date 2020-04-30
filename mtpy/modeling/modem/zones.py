@@ -10,13 +10,16 @@ Developer: brenainn.moushall@ga.gov.au
 """
 import sys
 import math
+import os
+from collections import defaultdict
 
 import numpy as np
 import matplotlib
 import matplotlib.pyplot as plt
 import matplotlib.cm as mpl_cm
+from mpl_toolkits.axes_grid1 import make_axes_locatable
 from sklearn.cluster import MeanShift, estimate_bandwidth
-from scipy.ndimage import label
+from scipy import ndimage
 
 from mtpy.modeling.modem import Model
 from mtpy.utils.mtpylog import MtPyLog
@@ -37,8 +40,6 @@ def _meanshift_cluster(res):
     """
     Using MeanShift clustering to label cells
     """
-    # TODO: instead of averaging res across slices, we could provide
-    # each slice as a feature
     # Need to transpose the data into shape (X*Y, 1) for inputting
     # to mean shift clusterer.
     X = res.flatten().reshape(-1, 1)
@@ -47,25 +48,46 @@ def _meanshift_cluster(res):
     msc = MeanShift(bw)
     labels = msc.fit_predict(X)
     labels = np.squeeze(labels.reshape(res.shape))
-    return labels
+    return labels, {l: f'cluster {l}' for l in np.unique(labels)}
 
 
 def _magnitude(res, mag_range):
     """
     Labels cells according to the magnitude of their resistivity
     """
-    return np.log10(res) // mag_range
+    result = np.log10(res) // mag_range
+    membership_map = {}
+
+    boundary_edge_power = np.unique(result)[0]
+    for x in np.unique(result):
+        membership_map[x] = f'{10**boundary_edge_power} to {10**(x+mag_range)}'
+        boundary_edge_power = x + mag_range
+    return result, membership_map
 
 
 def _value(res, value_ranges):
     """
     Labels cells according to membership of a value range
     """
-    value_ranges = np.array(value_ranges)
-    result = np.zeros_like(res)
-    for i, x in np.ndenumerate(res):
-        result[i] = np.argmin(np.fabs(value_ranges - x))
-    return result
+    result = np.digitize(res, value_ranges)
+    membership_map = {}
+    for x in np.unique(result):
+        if x == 0:
+            membership_map[x] = f'-inf to {value_ranges[0]}'
+        elif x > len(value_ranges) - 1:
+            membership_map[x] = f'{value_ranges[-1]} to inf'
+        else:
+            membership_map[x] = f'{value_ranges[x - 1]} to {value_ranges[x]}'
+    return result, membership_map
+
+
+def _label_zones(labels, l):
+    """
+    Takes a 2D-array of labels and labels zones that have given
+    label l.
+    """
+    labelled, _ = ndimage.label(labels == l)
+    return labelled
 
 
 def find_zones(model_file, x_pad=None, y_pad=None, z_pad=None, depths=None, method='cluster',
@@ -90,7 +112,7 @@ def find_zones(model_file, x_pad=None, y_pad=None, z_pad=None, depths=None, meth
             raise TypeError("value_ranges must be provided when using 'value_ranges' method")
         else:
             value_ranges = sorted(value_ranges)
-            prev = -1
+            prev = -sys.maxsize - 1
             for vr in value_ranges:
                 if prev >= vr:
                     raise ValueError("Value range must increase in ascending order (check that "
@@ -115,7 +137,6 @@ def find_zones(model_file, x_pad=None, y_pad=None, z_pad=None, depths=None, meth
     else:
         inds = list(get_depth_indices(grid_z, depths))
 
-    # TODO: thresholding - zone must consist of X cells or be absorbed into its closest neighbour
     if not inds:
         raise ValueError("No indices could be found in model depth grid for the depths provided.")
     if len(inds) == 1:
@@ -126,59 +147,52 @@ def find_zones(model_file, x_pad=None, y_pad=None, z_pad=None, depths=None, meth
         res_sd = np.mean(res[:, :, inds], axis=2)  # res for selected depths
 
     if method == 'cluster':
-        labels = _meanshift_cluster(res_sd)
+        labels, mm = _meanshift_cluster(res_sd)
     elif method == 'magnitude':
-        labels = _magnitude(res_sd, magnitude_range)
+        labels, mm = _magnitude(res_sd, magnitude_range)
     elif method == 'value':
-        labels = _value(res_sd, value_ranges)
+        labels, mm = _value(res_sd, value_ranges)
 
     # Find contiguous groups of labels - these are the zones
-    if contiguous:
-        groups = _contiguous_element_grouper(labels)
-    else:
-        groups = np.squeeze(labels)
-    print(f"Unique regions found: {len(np.unique(groups))}")
-
-    # TODO: better maps of zones
-    fig, ax = plt.subplots()
-    norm = matplotlib.colors.BoundaryNorm(boundaries=np.unique(groups), ncolors=len(np.unique(groups)))
-    ax.imshow(groups, cmap=mpl_cm.gist_rainbow, norm=norm)
-    fig.savefig('/tmp/zones.png')
-
-    # Get X, Y indices for each region
-    zones = []
-    for zone_id in np.unique(groups):
-        zones.append(groups == zone_id)
+    zones = {}
+    for l in np.unique(labels):
+        zone = np.squeeze(_label_zones(labels, l))
+        zones[l] = zone
+        # plot_zone_map(zone, mm[l])
 
     # Get average resistivity for zones
-    zone_res = []
-    for z in zones:
-        z_res = res[z]
-        z_res_mean = np.mean(z_res, axis=0)
-        zone_res.append(z_res_mean)
+    zone_res = defaultdict(list)
+    if contiguous:
+        # Treat each contiguous group as a discrete zone
+        for l, z in zones.items():
+            for x in np.unique(z):
+                z_res = res[z == x]
+                z_res_mean = np.mean(z_res, axis=0)
+                zone_res[mm[l]].append(z_res_mean)
+    else:
+        for l, z in zones.items():
+            z_res = res[z != 0]
+            z_res_mean = np.mean(z_res, axis=0)
+            zone_res[mm[l]].append(z_res_mean)
+
     return zone_res, grid_z
 
 
-def _contiguous_element_grouper(labels):
-    """
-    Takes a 2D-array of labels and identifies contiguous groups of the
-    same element.
-
-    Credit to https://stackoverflow.com/questions/47523071/\
-        grouping-adjacent-equal-elements-of-a-2d-numpy-array
-    """
-    flat_labels = labels.ravel()
-    offset = 0
-    result = np.zeros_like(labels)
-    for l in flat_labels:
-        labelled, num_features = label(labels == l)
-        result += labelled + offset + (labelled > 0)
-        offset += 1
-    return np.squeeze(result)
+# TODO: better zone maps
+def plot_zone_map(zone, membership):
+    fig, ax = plt.subplots()
+    divider = make_axes_locatable(ax)
+    cax = divider.append_axes('right', size='5%', pad=0.05)
+    norm = matplotlib.colors.BoundaryNorm(
+        boundaries=np.unique(zone), ncolors=len(np.unique(zone)))
+    im = ax.imshow(np.ma.masked_where(zone == 0, zone), cmap=mpl_cm.rainbow, norm=norm)
+    fig.colorbar(im, cax=cax, orientation='vertical')
+    fig.savefig(f'/tmp/zones_{membership}.png')
+    plt.close(fig)
 
 
-def plot_zone(zone_mean_res, model_depths, zone_name, min_depth=None, max_depth=None,
-              res_scaling=None):
+def plot_zone_res(zone_mean_res, model_depths, zone_name, outdir, min_depth=None, max_depth=None,
+                  res_scaling=None):
     min_depth = min(model_depths) if min_depth is None else min_depth
     max_depth = max(model_depths) if max_depth is None else max_depth
     fig, ax = plt.subplots()
@@ -191,14 +205,20 @@ def plot_zone(zone_mean_res, model_depths, zone_name, min_depth=None, max_depth=
     else:
         ax.set_xlabel("Resistivity (no scaling)")
     ax.plot(zone_mean_res, model_depths)
-    fig.savefig(f'/tmp/{zone_name}.png')
+    savepath = os.path.join(outdir, zone_name.replace(' ', '_').replace(':', ''))
+    fig.savefig(f"{savepath}.png")
     plt.close(fig)
 
 
 # Test code
 if __name__ == '__main__':
-    zr, depths = find_zones(sys.argv[1], depths=10, method='value', value_ranges=(1, 200, 1000), 
-                            contiguous=True)
-    for zone_id, zone in enumerate(zr):
-        plot_zone(zone, depths, f'Zone {zone_id}', 10, 10000, 'log')
+    outdir = os.path.join('/', 'tmp', os.path.splitext(os.path.basename(sys.argv[1]))[0])
+    if not os.path.exists(outdir):
+        os.mkdir(outdir)
+    zones, depths = find_zones(sys.argv[1], depths=10, method='magnitude', magnitude_range=2,
+                               contiguous=False)
+    for l, z in zones.items():
+        for i, zz in enumerate(z):
+            plot_zone_res(zz, depths, f'{l}: Zone {i}', outdir, min_depth=10, max_depth=10000,
+                          res_scaling='log')
 
