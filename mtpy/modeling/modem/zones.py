@@ -153,9 +153,11 @@ def find_zones(model_file, x_pad=None, y_pad=None, z_pad=None, depths=None, meth
     elif method == 'value':
         labels, mm = _value(res_sd, value_ranges)
 
-    # Find contiguous groups of labels - these are the zones
     zones = {}
     for l in np.unique(labels):
+        if l == 0:
+            # 0 is background
+            continue
         zone = np.squeeze(_label_zones(labels, l))
         zones[l] = zone
         # plot_zone_map(zone, mm[l])
@@ -219,6 +221,6 @@ if __name__ == '__main__':
                                contiguous=False)
     for l, z in zones.items():
         for i, zz in enumerate(z):
-            plot_zone_res(zz, depths, f'{l}: Zone {i}', outdir, min_depth=10, max_depth=10000,
+            plot_zone_res(zz, depths, f'{l}: Zone {i+1}', outdir, min_depth=10, max_depth=10000,
                           res_scaling='log')
 
