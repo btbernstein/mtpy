@@ -57,8 +57,19 @@ def _magnitude(res, mag_range):
     return np.log10(res) // mag_range
 
 
+def _value(res, value_ranges):
+    """
+    Labels cells according to membership of a value range
+    """
+    value_ranges = np.array(value_ranges)
+    result = np.zeros_like(res)
+    for i, x in np.ndenumerate(res):
+        result[i] = np.argmin(np.fabs(value_ranges - x))
+    return result
+
+
 def find_zones(model_file, x_pad=None, y_pad=None, z_pad=None, depths=None, method='cluster',
-               magnitude_range=None, value_ranges=None):
+               magnitude_range=None, value_ranges=None, contiguous=False):
     if isinstance(depths, tuple) or isinstance(depths, list):
         if depths[1] <= depths[0]:
             raise ValueError("Provided depth range is invalid. Max depth ({}) must be less than "
@@ -68,10 +79,23 @@ def find_zones(model_file, x_pad=None, y_pad=None, z_pad=None, depths=None, meth
                         "(min, max), a single depth as an integer or float, or None to get all "
                         "depths in the model. Provided 'depths' was of type {}".format(type(depths)))
 
-    if method == 'magnitude' and magnitude_range is None:
-        raise TypeError("magnitude_range must be provided when using 'magnitude' method")
-    elif method == 'value' and value_ranges is None:
-        raise TypeError("value_ranges must be provided when using 'value_ranges' method")
+    if method == 'magnitude':
+        if magnitude_range is None:
+            raise TypeError("magnitude_range must be provided when using 'magnitude' method")
+        elif not isinstance(magnitude_range, int):
+            raise TypeError("magnitude_range needs to be a single interger defining a range of "
+                            "magnitudes to use as zone bins, e.g. 1 = 0 : 1, 1 : 10, ...")
+    elif method == 'value':
+        if value_ranges is None:
+            raise TypeError("value_ranges must be provided when using 'value_ranges' method")
+        else:
+            value_ranges = sorted(value_ranges)
+            prev = -1
+            for vr in value_ranges:
+                if prev >= vr:
+                    raise ValueError("Value range must increase in ascending order (check that "
+                                     "you haven't specified the same boundary twice).")
+                prev = vr
 
     model = _load_model(model_file)
 
@@ -91,9 +115,7 @@ def find_zones(model_file, x_pad=None, y_pad=None, z_pad=None, depths=None, meth
     else:
         inds = list(get_depth_indices(grid_z, depths))
 
-    # All depths, depth range, single depth, polygons containing cells
-    # TODO: region finding methods - by magnitudes, by user defined ranges
-    # TODO: plot found zones
+    # TODO: thresholding - zone must consist of X cells or be absorbed into its closest neighbour
     if not inds:
         raise ValueError("No indices could be found in model depth grid for the depths provided.")
     if len(inds) == 1:
@@ -107,14 +129,20 @@ def find_zones(model_file, x_pad=None, y_pad=None, z_pad=None, depths=None, meth
         labels = _meanshift_cluster(res_sd)
     elif method == 'magnitude':
         labels = _magnitude(res_sd, magnitude_range)
+    elif method == 'value':
+        labels = _value(res_sd, value_ranges)
 
     # Find contiguous groups of labels - these are the zones
-    groups = _contiguous_element_grouper(labels)
+    if contiguous:
+        groups = _contiguous_element_grouper(labels)
+    else:
+        groups = np.squeeze(labels)
     print(f"Unique regions found: {len(np.unique(groups))}")
 
+    # TODO: better maps of zones
     fig, ax = plt.subplots()
     norm = matplotlib.colors.BoundaryNorm(boundaries=np.unique(groups), ncolors=len(np.unique(groups)))
-    ax.imshow(groups, cmap=mpl_cm.gist_ncar, norm=norm)
+    ax.imshow(groups, cmap=mpl_cm.gist_rainbow, norm=norm)
     fig.savefig('/tmp/zones.png')
 
     # Get X, Y indices for each region
@@ -146,7 +174,7 @@ def _contiguous_element_grouper(labels):
         labelled, num_features = label(labels == l)
         result += labelled + offset + (labelled > 0)
         offset += 1
-    return result
+    return np.squeeze(result)
 
 
 def plot_zone(zone_mean_res, model_depths, zone_name, min_depth=None, max_depth=None,
@@ -169,7 +197,8 @@ def plot_zone(zone_mean_res, model_depths, zone_name, min_depth=None, max_depth=
 
 # Test code
 if __name__ == '__main__':
-    zr, depths = find_zones(sys.argv[1], depths=(0, 500), method='magnitude', magnitude_range=2)
+    zr, depths = find_zones(sys.argv[1], depths=10, method='value', value_ranges=(1, 200, 1000), 
+                            contiguous=True)
     for zone_id, zone in enumerate(zr):
         plot_zone(zone, depths, f'Zone {zone_id}', 10, 10000, 'log')
 
