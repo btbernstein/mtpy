@@ -169,13 +169,11 @@ def find_zones(model_file, x_pad=None, y_pad=None, z_pad=None, depths=None, meth
         for l, z in zones.items():
             for x in np.unique(z):
                 z_res = res[z == x]
-                z_res_mean = np.mean(z_res, axis=0)
-                zone_res[mm[l]].append(z_res_mean)
+                zone_res[mm[l]].append(z_res)
     else:
         for l, z in zones.items():
             z_res = res[z != 0]
-            z_res_mean = np.mean(z_res, axis=0)
-            zone_res[mm[l]].append(z_res_mean)
+            zone_res[mm[l]].append(z_res)
 
     return zone_res, grid_z
 
@@ -193,20 +191,34 @@ def plot_zone_map(zone, membership):
     plt.close(fig)
 
 
-def plot_zone_res(zone_mean_res, model_depths, zone_name, outdir, min_depth=None, max_depth=None,
+def plot_zone_res(zone_res, model_depths, zone_name, outdir, min_depth=None, max_depth=None,
                   res_scaling=None):
     min_depth = min(model_depths) if min_depth is None else min_depth
     max_depth = max(model_depths) if max_depth is None else max_depth
     fig, ax = plt.subplots()
     ax.set_ylim(max_depth, min_depth)
-    ax.set_ylabel("Depth (m)")
+    step = max_depth // 5 
+    ticks = list(reversed(np.arange(0, max_depth, step)))
+    ticks.insert(0, min_depth)
+    ticks.append(max_depth)
+    ax.set_yticks(ticks)
+    ax.set_ylabel("Depth, m")
     ax.set_title(zone_name)
+    zone_mean_res = np.mean(zone_res, axis=0)
+    zone_min_res = np.min(zone_res, axis=0)
+    zone_max_res = np.max(zone_res, axis=0)
     if res_scaling == 'log':
         zone_mean_res = np.log10(zone_mean_res)
-        ax.set_xlabel("Resistivity (log10)")
+        zone_min_res = np.log10(zone_min_res)
+        zone_max_res = np.log10(zone_max_res)
+        ax.set_xlabel("Resistivity, " + r"$\Omega$" + "m (log10)")
     else:
-        ax.set_xlabel("Resistivity (no scaling)")
-    ax.plot(zone_mean_res, model_depths)
+        ax.set_xlabel("Resistivity, " + r"$\Omega$" + "m (no scaling)")
+    ax.plot(zone_mean_res, model_depths, color='k', lw=1.5)
+    ax.plot(zone_min_res, model_depths, color='k', alpha=0.1, ls='--')
+    ax.plot(zone_max_res, model_depths, color='k', alpha=0.1, ls='--')
+    ax.fill_betweenx(model_depths, zone_min_res, zone_max_res, alpha=0.1, color='k')
+    ax.xaxis.set_tick_params(which='minor', bottom=True)
     savepath = os.path.join(outdir, zone_name.replace(' ', '_').replace(':', ''))
     fig.savefig(f"{savepath}.png")
     plt.close(fig)
@@ -218,7 +230,7 @@ if __name__ == '__main__':
     if not os.path.exists(outdir):
         os.mkdir(outdir)
     zones, depths = find_zones(sys.argv[1], depths=10, method='magnitude', magnitude_range=2,
-                               contiguous=False)
+                               contiguous=True)
     for l, z in zones.items():
         for i, zz in enumerate(z):
             plot_zone_res(zz, depths, f'{l}: Zone {i+1}', outdir, min_depth=10, max_depth=10000,
