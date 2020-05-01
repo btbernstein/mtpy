@@ -62,13 +62,26 @@ def _magnitude(res, mag_range):
     """
     Labels cells according to the magnitude of their resistivity
     """
-    result = np.log10(res) // mag_range
+    log_res = np.floor(np.log10(res))
     membership_map = {}
 
-    boundary_edge_power = np.unique(result)[0]
+    boundary_le = np.min(log_res)
+    boundary_re = np.max(log_res)
+    boundary = boundary_le
+    boundaries = [boundary]
+    while boundary < boundary_re:
+        boundary = boundary + mag_range
+        boundaries.append(boundary)
+
+    result = np.digitize(log_res, boundaries)
     for x in np.unique(result):
-        membership_map[x] = f'{10**boundary_edge_power} to {10**(x+mag_range)}'
-        boundary_edge_power = x + mag_range
+        if x == 0:
+            membership_map[x] = f'-inf to {10**boundaries[0]}'
+        elif x > len(boundaries) - 1:
+            membership_map[x] = f'{10**boundaries[-1]} to inf'
+        else:
+            membership_map[x] = f'{10**boundaries[x - 1]} to {10**boundaries[x]}'
+
     return result, membership_map
 
 
