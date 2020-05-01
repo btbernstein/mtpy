@@ -44,8 +44,18 @@ def _load_data(data_file):
 
 
 def _meanshift_cluster(res):
-    """
-    Using MeanShift clustering to label cells
+    """Uses MeanShift clustering to label cells.
+
+    Parameters
+    ----------
+    res: np.ndarray
+        The resistivity grid of the model with depths limited to 
+        a specific range.
+
+    Returns
+    -------
+        A 2D array of shape (res.shape[0], res.shape[1]) where groups of
+        distinct values correspond to a cluster.
     """
     # Need to transpose the data into shape (X*Y, 1) for inputting
     # to mean shift clusterer.
@@ -59,8 +69,21 @@ def _meanshift_cluster(res):
 
 
 def _magnitude(res, mag_range):
-    """
-    Labels cells according to the magnitude of their resistivity
+    """Labels cells according to the magnitude of their resistivity.
+
+    Parameters
+    ----------
+    res: np.ndarray
+        The resistivity grid of the model with depths limited to a
+        specific range.
+    mag_range: int
+        See description in `find_zones` docstring.
+            
+    Returns
+    -------
+        A 2D array of shape (res.shape[0], res.shape[1]) where groups of
+        distinct values correspond to a zone being within a certain
+        magnitud range.
     """
     log_res = np.floor(np.log10(res))
     membership_map = {}
@@ -86,8 +109,21 @@ def _magnitude(res, mag_range):
 
 
 def _value(res, value_ranges):
-    """
-    Labels cells according to membership of a value range
+    """Labels cells according to membership of a value range.
+
+    Parameters
+    ----------
+    res: np.ndarray
+        The resistivity grid of the model with depths limited to a
+        specific range.
+    value_ranges: int
+
+
+    Returns
+    -------
+        A 2D array of shape (res.shape[0], res.shape[1]) where groups of
+        distinct values correspond to a zone being within a certain
+        value range.
     """
     result = np.digitize(res, value_ranges)
     membership_map = {}
@@ -102,9 +138,16 @@ def _value(res, value_ranges):
 
 
 def _label_zones(labels, l):
-    """
-    Takes a 2D-array of labels and labels zones that have given
-    label l.
+    """Takes a 2D-array of labels and applies unique labels to disinct
+    zones that have given label l, i.e. it determines contiguous
+    subzones within each membership class/label.
+
+    Parameters
+    ----------
+    labels: np.ndarray
+        A 2D array of labels.
+    l: any
+        The label/class membership to find and divide into subzones.
     """
     labelled, _ = ndimage.label(labels == l)
     return labelled
@@ -113,6 +156,91 @@ def _label_zones(labels, l):
 def find_zones(model_file, data_file=None, x_pad=None, y_pad=None, z_pad=None, depths=None,
                method='cluster', magnitude_range=None, value_ranges=None, contiguous=False,
                write_maps=True, map_outdir=None):
+    """Automatically divides a ModEM resistivity model into zones based
+    on areas that have similar resistivity and other search parameters.
+
+    Parameters
+    ----------
+    model_file: str or path
+        Path to the ModEM .rho file.
+    data_file: str or path, optional
+        Path to the ModEM .dat file. Required if 'write_maps' is True.
+        Is needed for getting center point of the survey area so the
+        zone maps can be georeferenced.
+    x_pad, y_pad, z_pad: int, optional
+        Number of padding cells along each axis of the model. These are
+        stripped from the model before processing is performed. If
+        not provided, then the default values will be taken from the
+        model.
+    depths: int or tuple or list, optional
+        Used to limit the search range when selecting zones. Can be a
+        single depth as an integer (in which case the mean won't be
+        taken when selecting zones, the depth will be considered as-is)
+        or a tuple/list of (min_depth, max_depth) (in which case the
+        mean will be taken across this depth range). If None, then
+        the mean will be taken along all depths in the model when
+        selecting zones.
+    method: str, optional
+        The method for selecting zones. Valid values are 'cluter',
+        'magnitude' and 'value'. Cluster will use a MeanShift model to
+        automatically cluster the model into zones. Magnitude will
+        divide into zones based on the magnitude of mean resistivity.
+        Value will divide into zones based on mean resistivity falling
+        within a value range.
+    magnitude_range: int, optional
+        A single integer specifying a range of orders of magnitude to
+        group zones into. E.g. 2 might result in bins of 0.1 - 1,
+        100 - 1000. The amount of bins and their boundaries
+        depends on the range of the data. Required if 'magnitude' method
+        is selected.
+    value_ranges: list or tuple, optional
+        A monotonically increasing series of values that represent the
+        edges of value ranges. [0] is the left-most edge and start of
+        the bins and [-1] is the right-most edge and end of the bins.
+        Values that fall outside of the bins will be classed as
+        '-inf to [0]' and '[-1] to inf' respectively. Required if
+        'value' method selected.
+    contiguous: bool, optional
+        If True, then for each bin/membership class as defined by the
+        selection method, subzones will be created of contiguous cells
+        that fall within this bin/class. If False, then each
+        bin/membership class is considered a single zone, i.e. cells
+        do not need to be connected.
+        Visual example:
+              a a a b b
+              a b b c c
+              a b c c a
+        In the grid above, each letter represents a bin/class. If
+        contiguous is True, then a is divided into subzones:
+              1 1 1 0 0
+              1 0 0 0 0
+              1 0 0 0 2
+        and the mean resistivity of a1 and a2 are taken and plotted
+        separately. If contiguous is False, then a is considered a
+        single, disconnected zone:
+              1 1 1 0 0
+              1 0 0 0 0
+              1 0 0 0 1
+        and the mean resistivity is taken across all a cells and
+        plotted.
+    write_maps: bool, optional
+        If True, then a geotiff will be output for each membership
+        class showing the zones within that class.
+    map_outdir: str or path, optional
+        Zones maps will be written to this directory. If not provided,
+        they will be saved to the working directory.
+
+    Returns
+    -------
+    dict
+        A dictionary mapping [zone_class: [zone_res]]. If contiguous
+        is False, then the list of zone arrays will have one member.
+        Otherwise, there will be an array for each subzone. The array
+        is a masked view of the resistivity of the zone.
+    np.ndarray
+        The model grid_z. This is returned for convenience of plotting
+        zones against model depth.
+    """
     if isinstance(depths, tuple) or isinstance(depths, list):
         if depths[1] <= depths[0]:
             raise ValueError("Provided depth range is invalid. Max depth ({}) must be less than "
@@ -181,6 +309,8 @@ def find_zones(model_file, data_file=None, x_pad=None, y_pad=None, z_pad=None, d
         labels, mm = _magnitude(res_sd, magnitude_range)
     elif method == 'value':
         labels, mm = _value(res_sd, value_ranges)
+    else: 
+        raise ValueError("Selected method not recognised.")
 
     zones = {}
     for l in np.unique(labels):
@@ -205,6 +335,31 @@ def find_zones(model_file, data_file=None, x_pad=None, y_pad=None, z_pad=None, d
 
 
 def write_zone_map(zone, membership, model, x_pad, y_pad, data, contiguous, outdir):
+    """
+    Writes a raster displaying zones.
+
+    Parameters
+    ----------
+    zone: np.ndarray
+        A 2D array containing labels, with each group of unique label
+        values representing a zone.
+    membership: str
+        A string defining the membership class/bin that the zone array
+        belongs to.
+    model: mtpy.modeling.modem.Model
+        ModEM model object.
+    x_pad, y_pad: int
+        Padding cells along the model east and north dimensions.
+        Stripped from the model before determining image origin.
+    data: mtpy.modeling.modem.Data
+        ModEM data object. Used to get survery center coordinate.
+    contiguous: bool
+        Whether or not contiguous zones are being considered. See 
+        `find_zones` description for more detail.
+    outdir: str or path, optional
+        The directory to write the map to. If not provided, then maps
+        are saved to the working directory.
+    """
     ce = get_centers(strip_padding(model.grid_east, x_pad))
     cn = get_centers(strip_padding(model.grid_north, y_pad))
     x_res = model.cell_size_east
@@ -226,14 +381,19 @@ def write_zone_map(zone, membership, model, x_pad, y_pad, data, contiguous, outd
 
 def plot_zone_res(zone_res, model_depths, zone_name, outdir, min_depth=None, max_depth=None,
                   res_scaling=None, num_y_ticks=5, figsize=(5, 10)):
+    """Plots the resistivity of a zone against model depth.
+
+    zone_res: np.ndarray
+    """
     min_depth = min(model_depths) if min_depth is None else min_depth
     max_depth = max(model_depths) if max_depth is None else max_depth
     fig, ax = plt.subplots(figsize=figsize)
     ax.set_ylim(max_depth, min_depth)
     step = max_depth // num_y_ticks
     ticks = list(reversed(np.arange(0, max_depth, step)))
-    ticks.insert(0, min_depth)
-    ticks.append(max_depth)
+    del ticks[-1]
+    ticks.insert(0, max_depth)
+    ticks.append(min_depth)
     ax.set_yticks(ticks)
     ax.set_ylabel("Depth, m")
     ax.set_title(zone_name)
@@ -253,6 +413,7 @@ def plot_zone_res(zone_res, model_depths, zone_name, outdir, min_depth=None, max
     ax.fill_betweenx(model_depths, zone_min_res, zone_max_res, alpha=0.1, color='k')
     ax.xaxis.set_tick_params(which='minor', bottom=True)
     savepath = os.path.join(outdir, zone_name.replace(' ', '_').replace(':', ''))
+    fig.tight_layout()
     fig.savefig(f"{savepath}.png")
     plt.close(fig)
 
@@ -262,7 +423,7 @@ if __name__ == '__main__':
     outdir = os.path.join('/', 'tmp', os.path.splitext(os.path.basename(sys.argv[1]))[0])
     if not os.path.exists(outdir):
         os.mkdir(outdir)
-    zones, depths = find_zones(sys.argv[1], depths=10, method='magnitude', magnitude_range=2,
+    zones, depths = find_zones(sys.argv[1], depths=10, method='value', value_ranges=[10, 100, 10000],
                                contiguous=True, write_maps=True, data_file=sys.argv[2],
                                map_outdir='/tmp/maps')
     for l, z in zones.items():
