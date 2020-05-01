@@ -192,12 +192,12 @@ def plot_zone_map(zone, membership):
 
 
 def plot_zone_res(zone_res, model_depths, zone_name, outdir, min_depth=None, max_depth=None,
-                  res_scaling=None):
+                  res_scaling=None, num_y_ticks=5, figsize=(5, 10)):
     min_depth = min(model_depths) if min_depth is None else min_depth
     max_depth = max(model_depths) if max_depth is None else max_depth
-    fig, ax = plt.subplots()
+    fig, ax = plt.subplots(figsize=figsize)
     ax.set_ylim(max_depth, min_depth)
-    step = max_depth // 5 
+    step = max_depth // num_y_ticks
     ticks = list(reversed(np.arange(0, max_depth, step)))
     ticks.insert(0, min_depth)
     ticks.append(max_depth)
