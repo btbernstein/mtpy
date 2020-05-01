@@ -19,10 +19,7 @@ Revision History:
 """
 import os
 import argparse
-import math
 
-import gdal
-import osr
 import numpy as np
 from scipy.interpolate import RegularGridInterpolator
 
@@ -30,112 +27,10 @@ from mtpy.modeling.modem import Model, Data
 from mtpy.utils import gis_tools
 from mtpy.utils.mtpylog import MtPyLog
 from mtpy.utils.modem_utils import (get_centers, strip_padding, strip_resgrid,
-                                    get_depth_indicies, list_depths)
+                                    get_depth_indices, list_depths, array2geotiff_writer,
+                                    get_gdal_origin)
 
 _logger = MtPyLog.get_mtpy_logger(__name__)
-
-
-def _rotate_transform(gt, angle, pivot_east, pivot_north):
-    """Rotates a geotransform.
-
-    Args:
-        gt (tuple of float): A 6-tuple GDAL style geotransfrom
-            (upperleft X, pixel width, row rotation,
-             upperleft Y, column rotation, pixel height)
-        angle (float): Angle in degrees to rotate by.
-        pivot_east, pivot_north (float): The pivot point of rotation
-
-    Returns:
-        tuple of float: A rotated geotransform.
-    """
-    ox, pw, rrot, oy, crot, ph = gt
-    rot = math.radians(angle)
-    gt[0] = pivot_east + (ox - pivot_east) * math.cos(rot) \
-        + (oy - pivot_north) * math.sin(rot)
-    gt[1] = pw * math.cos(rot)
-    gt[2] = pw * -math.sin(rot)
-    gt[3] = pivot_north - (ox - pivot_east) * math.sin(rot) \
-        + (oy - pivot_north) * math.cos(rot)
-
-    gt[4] = ph * math.sin(rot)
-    gt[5] = ph * math.cos(rot)
-    return gt
-
-
-def array2geotiff_writer(filename, origin, pixel_width, pixel_height, data,
-                         angle=None, epsg_code=4283, center=None, rotate_origin=False):
-    """Writes a 2D array as a single band geotiff raster and ASCII grid.
-
-    Args:
-        filename (str): Name of tiff/asc grid. If rotated, this will be
-            appended to the filename as 'name_rot{degrees}.tif'.
-        origin (tuple of int): Upper-left origin of image as (X, Y).
-        pixel_wdith, pixel_height (float): Pixel resolutions in X and Y
-            dimensions respectively.
-        data (np.ndarray): The array to be written as an image.
-        angle (float): Angle in degrees to rotate by. If None or 0 is
-            given, no rotation will be performed.
-        epsg_code (int): The 4-digit EPSG code of the data CRS.
-        center (tuple): A tuple containing image center point as
-            (easting, northing).
-        rotate_origin (bool): If True, image will be rotated about the
-            upper-left origin. If False, will be rotated about center.
-            The `center` param must be provided if rotating about
-            center.
-
-    Returns:
-        str, str: Filename of the geotiff ([0]) and ASCII grid ([1]).
-    """
-    gt = [origin[0], pixel_width, 0, origin[1], 0, pixel_height]
-
-    # Apply rotation by tweaking geotransform. The data remains the
-    # same but will appear roated in a viewer e.g. ArcGIS.
-    if angle:
-        if rotate_origin:
-            gt = _rotate_transform(gt, angle, origin[0], origin[1])
-        else:
-            gt = _rotate_transform(gt, angle, center.east, center.north)
-        filename = '{}_rot{}.tif'\
-                   .format(os.path.splitext(filename)[0], angle)
-
-    rows, cols = data.shape
-    driver = gdal.GetDriverByName('GTiff')
-    out_raster = driver.Create(filename, cols, rows, 1, gdal.GDT_Float32)
-    out_raster.SetGeoTransform(gt)
-    out_band = out_raster.GetRasterBand(1)
-    out_band.SetNoDataValue(np.nan)
-    out_band.WriteArray(data)
-    srs = osr.SpatialReference()
-    srs.ImportFromEPSG(epsg_code)
-    out_raster.SetProjection(srs.ExportToWkt())
-    out_band.FlushCache()
-
-    # output to ascii format
-    ascii_filename = "{}.asc".format(os.path.splitext(filename)[0])
-    driver2 = gdal.GetDriverByName('AAIGrid')
-    driver2.CreateCopy(ascii_filename, out_raster)
-
-    return filename, ascii_filename
-
-
-def _get_gdal_origin(centers_east, east_cell_size, mesh_center_east,
-                     centers_north, north_cell_size, mesh_center_north):
-    """Works out the upper left X, Y points of a grid.
-
-    Args:
-        centers_east, centers_north (np.ndarray): Arrays of cell
-            centers along respective axes.
-        cell_size_east, cell_size_north (float): Cell sizes in
-            respective directions.
-        mesh_center_east, mesh_center_north (float): Center point
-            of the survey area in some CRS system.
-
-    Return:
-        float, float: The upper left coordinate of the image in
-            relation to the survey center point. Used as GDAL origin.
-    """
-    return (centers_east[0] + mesh_center_east - east_cell_size / 2,
-            centers_north[-1] + mesh_center_north + north_cell_size / 2)
 
 
 def _build_target_grid(centers_east, cell_size_east, centers_north, cell_size_north):
@@ -229,7 +124,6 @@ def create_geogrid(data_file, model_file, out_dir, x_pad=None, y_pad=None, z_pad
     center_lon = center.lon.item() if center_lon is None else center_lon
 
     if epsg_code is None:
-        zone_number, is_northern, utm_zone = gis_tools.get_utm_zone(center_lat, center_lon)
         epsg_code = gis_tools.get_epsg(center_lat, center_lon)
         _logger.info("Input data epsg code has been inferred as {}".format(epsg_code))
 
@@ -268,7 +162,7 @@ def create_geogrid(data_file, model_file, out_dir, x_pad=None, y_pad=None, z_pad
     #  corner of the image. So take the upper left-cell and shift it
     #  half a cell west and north so we get the upper-left corner of
     #  the grid as GDAL origin.
-    origin = _get_gdal_origin(ce, x_res, center.east, cn, y_res, center.north)
+    origin = get_gdal_origin(ce, x_res, center.east, cn, y_res, center.north)
 
     target_gridx, target_gridy = _build_target_grid(ce, x_res, cn, y_res)
 
