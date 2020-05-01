@@ -21,10 +21,11 @@ from mpl_toolkits.axes_grid1 import make_axes_locatable
 from sklearn.cluster import MeanShift, estimate_bandwidth
 from scipy import ndimage
 
-from mtpy.modeling.modem import Model
+from mtpy.modeling.modem import Model, Data
 from mtpy.utils.mtpylog import MtPyLog
+from mtpy.utils import gis_tools
 from mtpy.utils.modem_utils import (strip_resgrid, get_centers, strip_padding, get_depth_indices,
-                                    get_centers)
+                                    get_centers, get_gdal_origin, array2geotiff_writer)
 
 
 _logger = MtPyLog.get_mtpy_logger(__name__)
@@ -34,6 +35,12 @@ def _load_model(model_file):
     model = Model()
     model.read_model_file(model_fn=model_file)
     return model
+
+
+def _load_data(data_file):
+    data = Data()
+    data.read_data_file(data_fn=data_file)
+    return data
 
 
 def _meanshift_cluster(res):
@@ -90,8 +97,9 @@ def _label_zones(labels, l):
     return labelled
 
 
-def find_zones(model_file, x_pad=None, y_pad=None, z_pad=None, depths=None, method='cluster',
-               magnitude_range=None, value_ranges=None, contiguous=False):
+def find_zones(model_file, data_file=None, x_pad=None, y_pad=None, z_pad=None, depths=None,
+               method='cluster', magnitude_range=None, value_ranges=None, contiguous=False,
+               write_maps=True, map_outdir=None):
     if isinstance(depths, tuple) or isinstance(depths, list):
         if depths[1] <= depths[0]:
             raise ValueError("Provided depth range is invalid. Max depth ({}) must be less than "
@@ -118,6 +126,14 @@ def find_zones(model_file, x_pad=None, y_pad=None, z_pad=None, depths=None, meth
                     raise ValueError("Value range must increase in ascending order (check that "
                                      "you haven't specified the same boundary twice).")
                 prev = vr
+
+    if write_maps:
+        if data_file is None:
+            _logger.warning("Can't write maps without data_file. Maps will not be written. Please "
+                            "provide model .dat file as data_file to write maps.")
+            write_maps = False
+        else:
+            data = _load_data(data_file)
 
     model = _load_model(model_file)
 
@@ -155,14 +171,11 @@ def find_zones(model_file, x_pad=None, y_pad=None, z_pad=None, depths=None, meth
 
     zones = {}
     for l in np.unique(labels):
-        if l == 0:
-            # 0 is background
-            continue
         zone = np.squeeze(_label_zones(labels, l))
         zones[l] = zone
-        # plot_zone_map(zone, mm[l])
+        if write_maps:
+            write_zone_map(zone, mm[l], model, x_pad, y_pad, data, contiguous, map_outdir)
 
-    # Get average resistivity for zones
     zone_res = defaultdict(list)
     if contiguous:
         # Treat each contiguous group as a discrete zone
@@ -178,17 +191,24 @@ def find_zones(model_file, x_pad=None, y_pad=None, z_pad=None, depths=None, meth
     return zone_res, grid_z
 
 
-# TODO: better zone maps
-def plot_zone_map(zone, membership):
-    fig, ax = plt.subplots()
-    divider = make_axes_locatable(ax)
-    cax = divider.append_axes('right', size='5%', pad=0.05)
-    norm = matplotlib.colors.BoundaryNorm(
-        boundaries=np.unique(zone), ncolors=len(np.unique(zone)))
-    im = ax.imshow(np.ma.masked_where(zone == 0, zone), cmap=mpl_cm.rainbow, norm=norm)
-    fig.colorbar(im, cax=cax, orientation='vertical')
-    fig.savefig(f'/tmp/zones_{membership}.png')
-    plt.close(fig)
+def write_zone_map(zone, membership, model, x_pad, y_pad, data, contiguous, outdir):
+    ce = get_centers(strip_padding(model.grid_east, x_pad))
+    cn = get_centers(strip_padding(model.grid_north, y_pad))
+    x_res = model.cell_size_east
+    y_res = model.cell_size_north
+    center = data.center_point
+    origin = get_gdal_origin(ce, x_res, center.east, cn, y_res, center.north)
+    epsg_code = gis_tools.get_epsg(center.lat.item(), center.lon.item())
+    if outdir is None:
+        # save to working directory
+        output_file = f"{membership.replace(' ', '_')}_zone_map.tif"
+    else:
+        if not os.path.exists(outdir):
+            os.mkdir(outdir)
+        output_file = os.path.join(outdir, f"{membership.replace(' ', '_')}_zone_map.tif")
+    if not contiguous:
+        zone = np.where(zone != 0, 1, 0)
+    array2geotiff_writer(output_file, origin, x_res, -y_res, zone, epsg_code=epsg_code, ndv=0)
 
 
 def plot_zone_res(zone_res, model_depths, zone_name, outdir, min_depth=None, max_depth=None,
@@ -230,7 +250,8 @@ if __name__ == '__main__':
     if not os.path.exists(outdir):
         os.mkdir(outdir)
     zones, depths = find_zones(sys.argv[1], depths=10, method='magnitude', magnitude_range=2,
-                               contiguous=True)
+                               contiguous=True, write_maps=True, data_file=sys.argv[2],
+                               map_outdir='/tmp/maps')
     for l, z in zones.items():
         for i, zz in enumerate(z):
             plot_zone_res(zz, depths, f'{l}: Zone {i+1}', outdir, min_depth=10, max_depth=10000,
