@@ -17,13 +17,14 @@ import numpy as np
 import matplotlib
 import matplotlib.pyplot as plt
 import matplotlib.cm as mpl_cm
+import pandas as pd
 from mpl_toolkits.axes_grid1 import make_axes_locatable
 from sklearn.cluster import MeanShift, estimate_bandwidth
 from scipy import ndimage
 
 from mtpy.modeling.modem import Model, Data
 from mtpy.utils.mtpylog import MtPyLog
-from mtpy.utils import gis_tools
+from mtpy.utils import gis_tools, EPSG_DICT
 from mtpy.utils.modem_utils import (strip_resgrid, get_centers, strip_padding, get_depth_indices,
                                     get_centers, get_gdal_origin, array2geotiff_writer)
 
@@ -43,13 +44,79 @@ def _load_data(data_file):
     return data
 
 
+class Zone(object):
+    def __init__(self, model_name, membership, identifier, resistivity, depths, mask, top, right,
+                 bottom, left, area, epsg, stations, min_depth, max_depth, method, method_range,
+                 cell_size):
+        self.model_name = model_name
+        self.membership = membership
+        self.identifier = identifier
+        self.res = resistivity
+        self.depths = depths
+        self.mask = mask
+        self.top = top
+        self.right = right
+        self.bottom = bottom
+        self.left = left
+        self.area = area
+        self.epsg = epsg
+        self.stations = stations
+        self.min_depth = min_depth
+        self.max_depth = max_depth
+        self.method = method
+        self.method_range = method_range
+        self.cell_size = cell_size
+
+    def write_csv(self):
+        pass
+
+    def plot(self, res_scaling=None, min_depth=None, max_depth=None, num_y_ticks=5,
+             figsize=(5, 10), savepath=None):
+        """Plots the resistivity of a zone against model depth.
+
+        zone_res: np.ndarray
+        """
+        min_depth = min(self.depths) if min_depth is None else min_depth
+        max_depth = max(self.depths) if max_depth is None else max_depth
+        fig, ax = plt.subplots(figsize=figsize)
+        ax.set_ylim(max_depth, min_depth)
+        step = max_depth // num_y_ticks
+        ticks = list(reversed(np.arange(0, max_depth, step)))
+        del ticks[-1]
+        ticks.insert(0, max_depth)
+        ticks.append(min_depth)
+        ax.set_yticks(ticks)
+        ax.set_ylabel("Depth, m")
+        zone_name = ' '.join((self.model_name, self.membership, str(self.identifier)))
+        ax.set_title(zone_name)
+        zone_mean_res = np.mean(self.res, axis=0)
+        zone_min_res = np.min(self.res, axis=0)
+        zone_max_res = np.max(self.res, axis=0)
+        if res_scaling == 'log':
+            zone_mean_res = np.log10(zone_mean_res)
+            zone_min_res = np.log10(zone_min_res)
+            zone_max_res = np.log10(zone_max_res)
+            ax.set_xlabel("Resistivity, " + r"$\Omega$" + "m (log10)")
+        else:
+            ax.set_xlabel("Resistivity, " + r"$\Omega$" + "m (no scaling)")
+        ax.plot(zone_mean_res, self.depths, color='k', lw=1.5)
+        ax.plot(zone_min_res, self.depths, color='k', alpha=0.1, ls='--')
+        ax.plot(zone_max_res, self.depths, color='k', alpha=0.1, ls='--')
+        ax.fill_betweenx(self.depths, zone_min_res, zone_max_res, alpha=0.1, color='k')
+        ax.xaxis.set_tick_params(which='minor', bottom=True)
+        savepath = os.path.join(savepath, zone_name.replace(' ', '_').replace(':', ''))
+        fig.tight_layout()
+        fig.savefig(f"{savepath}.png")
+        plt.close(fig)
+
+
 def _meanshift_cluster(res):
     """Uses MeanShift clustering to label cells.
 
     Parameters
     ----------
     res: np.ndarray
-        The resistivity grid of the model with depths limited to 
+        The resistivity grid of the model with depths limited to
         a specific range.
 
     Returns
@@ -155,7 +222,7 @@ def _label_zones(labels, l):
 
 def find_zones(model_file, data_file=None, x_pad=None, y_pad=None, z_pad=None, depths=None,
                method='cluster', magnitude_range=None, value_ranges=None, contiguous=False,
-               write_maps=True, map_outdir=None):
+               write_maps=True, map_outdir=None, write_csv=True):
     """Automatically divides a ModEM resistivity model into zones based
     on areas that have similar resistivity and other search parameters.
 
@@ -245,10 +312,15 @@ def find_zones(model_file, data_file=None, x_pad=None, y_pad=None, z_pad=None, d
         if depths[1] <= depths[0]:
             raise ValueError("Provided depth range is invalid. Max depth ({}) must be less than "
                              "min depth ({}).".format(depths[1], depths[0]))
+        else:
+            min_depth = depths[0]
+            max_depth = depths[1]
     elif not (depths is None or isinstance(depths, int) or isinstance(depths, float)):
         raise TypeError("Depths must be either a list/tuple containing two element depth range "
                         "(min, max), a single depth as an integer or float, or None to get all "
                         "depths in the model. Provided 'depths' was of type {}".format(type(depths)))
+    else:
+        min_depth = max_depth = 1
 
     if method == 'magnitude':
         if magnitude_range is None:
@@ -268,11 +340,12 @@ def find_zones(model_file, data_file=None, x_pad=None, y_pad=None, z_pad=None, d
                                      "you haven't specified the same boundary twice).")
                 prev = vr
 
-    if write_maps:
+    if write_maps or write_csv:
         if data_file is None:
-            _logger.warning("Can't write maps without data_file. Maps will not be written. Please "
-                            "provide model .dat file as data_file to write maps.")
+            _logger.warning("Can't write maps or csv without data_file. Maps will not be written. Please "
+                            "provide model .dat file as data_file to write maps or csv.")
             write_maps = False
+            write_csv = False
         else:
             data = _load_data(data_file)
 
@@ -287,12 +360,9 @@ def find_zones(model_file, data_file=None, x_pad=None, y_pad=None, z_pad=None, d
     grid_z = strip_padding(get_centers(model.grid_z), z_pad, keep_start=True)
 
     # Get indices for the provided depth/depth range
-    if isinstance(depths, tuple) or isinstance(depths, list):
-        start_ind = get_depth_indices(grid_z, [depths[0]]).pop()
-        end_ind = get_depth_indices(grid_z, [depths[1]]).pop()
-        inds = range(start_ind, end_ind + 1)
-    else:
-        inds = list(get_depth_indices(grid_z, depths))
+    start_ind = get_depth_indices(grid_z, min_depth).pop()
+    end_ind = get_depth_indices(grid_z, max_depth).pop()
+    inds = range(start_ind, end_ind + 1)
 
     if not inds:
         raise ValueError("No indices could be found in model depth grid for the depths provided.")
@@ -305,33 +375,124 @@ def find_zones(model_file, data_file=None, x_pad=None, y_pad=None, z_pad=None, d
 
     if method == 'cluster':
         labels, mm = _meanshift_cluster(res_sd)
+        method_range = None
     elif method == 'magnitude':
         labels, mm = _magnitude(res_sd, magnitude_range)
+        method_range = magnitude_range
     elif method == 'value':
         labels, mm = _value(res_sd, value_ranges)
-    else: 
+        method_range = value_ranges
+    else:
         raise ValueError("Selected method not recognised.")
 
-    zones = {}
+    # Construct zone objects - get some additional information
+    model_name = os.path.splitext(os.path.basename(model_file))[0]
+    ce = get_centers(strip_padding(model.grid_east, x_pad))
+    cn = get_centers(strip_padding(model.grid_north, y_pad))
+    grid_e, grid_n = np.meshgrid(ce, cn)
+
+    x_res = model.cell_size_east
+    y_res = model.cell_size_north
+    pixel_size = x_res * y_res
+
+    center = data.center_point
+    epsg_code = gis_tools.get_epsg(center.lat.item(), center.lon.item())
+    wkt = EPSG_DICT[epsg_code]
+    south_positive = '+south' in wkt
+
+    zones = []
     for l in np.unique(labels):
         zone = np.squeeze(_label_zones(labels, l))
-        zones[l] = zone
-        if write_maps:
-            write_zone_map(zone, mm[l], model, x_pad, y_pad, data, contiguous, map_outdir)
+        if contiguous:
+            subzones = np.unique(zone)
+        else:
+            subzones = [1]
+        for x in subzones:
+            print(x)
+            if x == 0:
+                continue
+            if contiguous:
+                zi = zone == x
+            else:
+                zi = zone != 0
+            z_res = res[zi]
+            top, right, bottom, left, area = get_zone_dimensions(zi, grid_e, grid_n, pixel_size,
+                                                                 south_positive)
+            stations = None
+            # stations = get_stations_in_zone(zi, grid_e, grid_n, x_res, y_res)
+            zones.append(Zone(model_name, mm[l], x, z_res, grid_z, zi,
+                              top, right, bottom, left, area, epsg_code,
+                              stations, min_depth, max_depth, method, method_range, pixel_size))
+    return zones
 
-    zone_res = defaultdict(list)
-    if contiguous:
-        # Treat each contiguous group as a discrete zone
-        for l, z in zones.items():
+
+def write_zones_csv(zones, mm, depths, model, x_pad, y_pad, data, contiguous):
+    csv_data = defaultdict(list)
+    ce = get_centers(strip_padding(model.grid_east, x_pad))
+    cn = get_centers(strip_padding(model.grid_north, y_pad))
+    grid_e, grid_n = np.meshgrid(ce, cn)
+
+    x_res = model.cell_size_east
+    y_res = model.cell_size_north
+    pixel_size = x_res * y_res
+
+    center = data.center_point
+    epsg_code = gis_tools.get_epsg(center.lat.item(), center.lon.item())
+    wkt = EPSG_DICT[epsg_code]
+    south_positive = '+south' in wkt
+
+    for l, z in zones.items():
+        if contiguous:
             for x in np.unique(z):
-                z_res = res[z == x]
-                zone_res[mm[l]].append(z_res)
-    else:
-        for l, z in zones.items():
-            z_res = res[z != 0]
-            zone_res[mm[l]].append(z_res)
+                if x == 0:
+                    continue
+                zi = z == x
+                top, right, bottom, left, area = \
+                    get_zone_dimensions(zi, grid_e, grid_n, pixel_size, south_positive)
+                get_stations_in_zone(zi, grid_e, grid_n, x_res, y_res, data.mt_dict)
+                csv_data['class'].append(mm[l])
+                csv_data['id'].append(x)
+                csv_data['top'].append(top)
+                csv_data['right'].append(right)
+                csv_data['bottom'].append(bottom)
+                csv_data['left'].append(left)
+                csv_data['area'].append(area)
+                if isinstance(depths, list) or isinstance(depths, tuple):
+                    csv_data['min_depth'].append(min(depths))
+                    csv_data['max_depth'].append(max(depths))
+                else:
+                    csv_data['min_depth'].append(depths)
+                    csv_data['max_depth'].append(depths)
+        else:
+            zi = z != 0
+            top, right, bottom, left, area = \
+                get_zone_dimensions(zi, grid_e, grid_n, pixel_size, south_positive)
+            csv_data['class'].append(l)
+            csv_data['id'].append(x)
+        df = pd.DataFrame(data=csv_data)
+        df.to_csv('/tmp/test.csv')
 
-    return zone_res, grid_z
+
+def get_stations_in_zone(zi, grid_e, grid_n, x_res, y_res, station_dict):
+    for station, mt_obj in station_dict.items():
+        zge = grid_e[zi]
+        zgn = grid_n[zi]
+        print(mt_obj.east, mt_obj.north)
+        print(mt_obj.lat, mt_obj.lon)
+        if mt_obj.east in zge + x_res / 2 or mt_obj.east in zge - x_res / 2 \
+                and mt_obj.north in zgn + y_res / 2 or mt_obj.north in zgn - y_res / 2:
+            print(f"{station} in zone")
+
+
+def get_zone_dimensions(zi, grid_e, grid_n, pixel_size, south_positive=False):
+    top, right, bottom, left = \
+        np.max(grid_n[zi]), np.max(grid_e[zi]), np.min(grid_n[zi]), np.min(grid_e[zi])
+    if south_positive:
+        tmp = bottom
+        bottom = top
+        top = tmp
+    area = pixel_size * np.count_nonzero(zi)
+    return top, right, bottom, left, area
 
 
 def write_zone_map(zone, membership, model, x_pad, y_pad, data, contiguous, outdir):
@@ -379,55 +540,15 @@ def write_zone_map(zone, membership, model, x_pad, y_pad, data, contiguous, outd
     array2geotiff_writer(output_file, origin, x_res, -y_res, zone, epsg_code=epsg_code, ndv=0)
 
 
-def plot_zone_res(zone_res, model_depths, zone_name, outdir, min_depth=None, max_depth=None,
-                  res_scaling=None, num_y_ticks=5, figsize=(5, 10)):
-    """Plots the resistivity of a zone against model depth.
-
-    zone_res: np.ndarray
-    """
-    min_depth = min(model_depths) if min_depth is None else min_depth
-    max_depth = max(model_depths) if max_depth is None else max_depth
-    fig, ax = plt.subplots(figsize=figsize)
-    ax.set_ylim(max_depth, min_depth)
-    step = max_depth // num_y_ticks
-    ticks = list(reversed(np.arange(0, max_depth, step)))
-    del ticks[-1]
-    ticks.insert(0, max_depth)
-    ticks.append(min_depth)
-    ax.set_yticks(ticks)
-    ax.set_ylabel("Depth, m")
-    ax.set_title(zone_name)
-    zone_mean_res = np.mean(zone_res, axis=0)
-    zone_min_res = np.min(zone_res, axis=0)
-    zone_max_res = np.max(zone_res, axis=0)
-    if res_scaling == 'log':
-        zone_mean_res = np.log10(zone_mean_res)
-        zone_min_res = np.log10(zone_min_res)
-        zone_max_res = np.log10(zone_max_res)
-        ax.set_xlabel("Resistivity, " + r"$\Omega$" + "m (log10)")
-    else:
-        ax.set_xlabel("Resistivity, " + r"$\Omega$" + "m (no scaling)")
-    ax.plot(zone_mean_res, model_depths, color='k', lw=1.5)
-    ax.plot(zone_min_res, model_depths, color='k', alpha=0.1, ls='--')
-    ax.plot(zone_max_res, model_depths, color='k', alpha=0.1, ls='--')
-    ax.fill_betweenx(model_depths, zone_min_res, zone_max_res, alpha=0.1, color='k')
-    ax.xaxis.set_tick_params(which='minor', bottom=True)
-    savepath = os.path.join(outdir, zone_name.replace(' ', '_').replace(':', ''))
-    fig.tight_layout()
-    fig.savefig(f"{savepath}.png")
-    plt.close(fig)
-
-
 # Test code
 if __name__ == '__main__':
     outdir = os.path.join('/', 'tmp', os.path.splitext(os.path.basename(sys.argv[1]))[0])
     if not os.path.exists(outdir):
         os.mkdir(outdir)
-    zones, depths = find_zones(sys.argv[1], depths=10, method='value', value_ranges=[10, 100, 10000],
-                               contiguous=True, write_maps=True, data_file=sys.argv[2],
-                               map_outdir='/tmp/maps')
-    for l, z in zones.items():
-        for i, zz in enumerate(z):
-            plot_zone_res(zz, depths, f'{l}: Zone {i+1}', outdir, min_depth=10, max_depth=10000,
-                          res_scaling='log')
+    zones = find_zones(sys.argv[1], depths=10, method='value', value_ranges=[10, 100, 10000],
+                       contiguous=True, write_maps=True, data_file=sys.argv[2],
+                       map_outdir='/tmp/maps')
+    for z in zones:
+        z.plot(res_scaling='log', min_depth=500, max_depth=10000, num_y_ticks=5,
+               figsize=(5, 10), savepath='/tmp/test_plots')
 
