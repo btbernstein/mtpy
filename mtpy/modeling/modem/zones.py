@@ -32,21 +32,10 @@ from mtpy.utils.modem_utils import (strip_resgrid, get_centers, strip_padding, g
 _logger = MtPyLog.get_mtpy_logger(__name__)
 
 
-def _load_model(model_file):
-    model = Model()
-    model.read_model_file(model_fn=model_file)
-    return model
-
-
-def _load_data(data_file):
-    data = Data()
-    data.read_data_file(data_fn=data_file)
-    return data
-
-
 class Zone(object):
-    def __init__(self, model_name, membership, identifier, resistivity, depths, mask, top, right,
-                 bottom, left, area, epsg, stations, min_depth, max_depth, method, method_range,
+    def __init__(self, model_name, membership, identifier, resistivity, depths, mask,
+                 n_cells, e_cells, top, right, bottom, left, area, epsg, stations,
+                 min_depth, max_depth, method, method_range,
                  cell_size):
         self.model_name = model_name
         self.membership = membership
@@ -54,6 +43,8 @@ class Zone(object):
         self.res = resistivity
         self.depths = depths
         self.mask = mask
+        self.n_cells = n_cells
+        self.e_cells = e_cells
         self.top = top
         self.right = right
         self.bottom = bottom
@@ -67,8 +58,21 @@ class Zone(object):
         self.method_range = method_range
         self.cell_size = cell_size
 
-    def write_csv(self):
-        pass
+    def write_csv(self, savepath=None):
+        csv_data = defaultdict(list)
+        for i in range(self.res.shape[0]):
+            csv_data['east'].append(self.e_cells[i])
+            csv_data['north'].append(self.n_cells[i])
+            for j in range(self.res.shape[1]):
+                d = math.floor(self.depths[j])
+                csv_data[str(d) + 'm'].append(self.res[i, j])
+        zone_name = '_'.join((self.model_name, self.membership, str(self.identifier)))
+        if savepath is None:
+            savepath = zone_name + '.csv'
+        else:
+            savepath = os.path.join(savepath, zone_name + '.csv')
+        df = pd.DataFrame(csv_data)
+        df.to_csv(savepath)
 
     def plot(self, res_scaling=None, min_depth=None, max_depth=None, num_y_ticks=5,
              figsize=(5, 10), savepath=None):
@@ -104,7 +108,10 @@ class Zone(object):
         ax.plot(zone_max_res, self.depths, color='k', alpha=0.1, ls='--')
         ax.fill_betweenx(self.depths, zone_min_res, zone_max_res, alpha=0.1, color='k')
         ax.xaxis.set_tick_params(which='minor', bottom=True)
-        savepath = os.path.join(savepath, zone_name.replace(' ', '_').replace(':', ''))
+        if savepath is None:
+            savepath = zone_name.replace(' ', '_')
+        else:
+            savepath = os.path.join(savepath, zone_name.replace(' ', '_'))
         fig.tight_layout()
         fig.savefig(f"{savepath}.png")
         plt.close(fig)
@@ -220,9 +227,8 @@ def _label_zones(labels, l):
     return labelled
 
 
-def find_zones(model_file, data_file=None, x_pad=None, y_pad=None, z_pad=None, depths=None,
-               method='cluster', magnitude_range=None, value_ranges=None, contiguous=False,
-               write_maps=True, map_outdir=None, write_csv=True):
+def find_zones(model, data, x_pad=None, y_pad=None, z_pad=None, depths=None,
+               method='cluster', magnitude_range=None, value_ranges=None, contiguous=False):
     """Automatically divides a ModEM resistivity model into zones based
     on areas that have similar resistivity and other search parameters.
 
@@ -340,17 +346,6 @@ def find_zones(model_file, data_file=None, x_pad=None, y_pad=None, z_pad=None, d
                                      "you haven't specified the same boundary twice).")
                 prev = vr
 
-    if write_maps or write_csv:
-        if data_file is None:
-            _logger.warning("Can't write maps or csv without data_file. Maps will not be written. Please "
-                            "provide model .dat file as data_file to write maps or csv.")
-            write_maps = False
-            write_csv = False
-        else:
-            data = _load_data(data_file)
-
-    model = _load_model(model_file)
-
     x_pad = model.pad_east if x_pad is None else x_pad
     y_pad = model.pad_north if y_pad is None else y_pad
     z_pad = model.pad_z if z_pad is None else z_pad
@@ -386,7 +381,7 @@ def find_zones(model_file, data_file=None, x_pad=None, y_pad=None, z_pad=None, d
         raise ValueError("Selected method not recognised.")
 
     # Construct zone objects - get some additional information
-    model_name = os.path.splitext(os.path.basename(model_file))[0]
+    model_name = os.path.splitext(os.path.basename(model.model_fn))[0]
     ce = get_centers(strip_padding(model.grid_east, x_pad))
     cn = get_centers(strip_padding(model.grid_north, y_pad))
     grid_e, grid_n = np.meshgrid(ce, cn)
@@ -408,7 +403,6 @@ def find_zones(model_file, data_file=None, x_pad=None, y_pad=None, z_pad=None, d
         else:
             subzones = [1]
         for x in subzones:
-            print(x)
             if x == 0:
                 continue
             if contiguous:
@@ -416,61 +410,15 @@ def find_zones(model_file, data_file=None, x_pad=None, y_pad=None, z_pad=None, d
             else:
                 zi = zone != 0
             z_res = res[zi]
-            top, right, bottom, left, area = get_zone_dimensions(zi, grid_e, grid_n, pixel_size,
-                                                                 south_positive)
+            n_cells, e_cells, top, right, bottom, left, area = \
+                get_zone_dimensions(zi, grid_e, grid_n, pixel_size, south_positive)
             stations = None
             # stations = get_stations_in_zone(zi, grid_e, grid_n, x_res, y_res)
-            zones.append(Zone(model_name, mm[l], x, z_res, grid_z, zi,
+            zones.append(Zone(model_name, mm[l], x, z_res, grid_z, zi, n_cells, e_cells,
                               top, right, bottom, left, area, epsg_code,
                               stations, min_depth, max_depth, method, method_range, pixel_size))
+
     return zones
-
-
-def write_zones_csv(zones, mm, depths, model, x_pad, y_pad, data, contiguous):
-    csv_data = defaultdict(list)
-    ce = get_centers(strip_padding(model.grid_east, x_pad))
-    cn = get_centers(strip_padding(model.grid_north, y_pad))
-    grid_e, grid_n = np.meshgrid(ce, cn)
-
-    x_res = model.cell_size_east
-    y_res = model.cell_size_north
-    pixel_size = x_res * y_res
-
-    center = data.center_point
-    epsg_code = gis_tools.get_epsg(center.lat.item(), center.lon.item())
-    wkt = EPSG_DICT[epsg_code]
-    south_positive = '+south' in wkt
-
-    for l, z in zones.items():
-        if contiguous:
-            for x in np.unique(z):
-                if x == 0:
-                    continue
-                zi = z == x
-                top, right, bottom, left, area = \
-                    get_zone_dimensions(zi, grid_e, grid_n, pixel_size, south_positive)
-                get_stations_in_zone(zi, grid_e, grid_n, x_res, y_res, data.mt_dict)
-                csv_data['class'].append(mm[l])
-                csv_data['id'].append(x)
-                csv_data['top'].append(top)
-                csv_data['right'].append(right)
-                csv_data['bottom'].append(bottom)
-                csv_data['left'].append(left)
-                csv_data['area'].append(area)
-                if isinstance(depths, list) or isinstance(depths, tuple):
-                    csv_data['min_depth'].append(min(depths))
-                    csv_data['max_depth'].append(max(depths))
-                else:
-                    csv_data['min_depth'].append(depths)
-                    csv_data['max_depth'].append(depths)
-        else:
-            zi = z != 0
-            top, right, bottom, left, area = \
-                get_zone_dimensions(zi, grid_e, grid_n, pixel_size, south_positive)
-            csv_data['class'].append(l)
-            csv_data['id'].append(x)
-        df = pd.DataFrame(data=csv_data)
-        df.to_csv('/tmp/test.csv')
 
 
 def get_stations_in_zone(zi, grid_e, grid_n, x_res, y_res, station_dict):
@@ -485,17 +433,42 @@ def get_stations_in_zone(zi, grid_e, grid_n, x_res, y_res, station_dict):
 
 
 def get_zone_dimensions(zi, grid_e, grid_n, pixel_size, south_positive=False):
+    n_cells = grid_n[zi]
+    e_cells = grid_e[zi]
     top, right, bottom, left = \
-        np.max(grid_n[zi]), np.max(grid_e[zi]), np.min(grid_n[zi]), np.min(grid_e[zi])
+        np.max(n_cells), np.max(e_cells), np.min(n_cells), np.min(e_cells)
     if south_positive:
         tmp = bottom
         bottom = top
         top = tmp
     area = pixel_size * np.count_nonzero(zi)
-    return top, right, bottom, left, area
+    return n_cells, e_cells, top, right, bottom, left, area
 
 
-def write_zone_map(zone, membership, model, x_pad, y_pad, data, contiguous, outdir):
+def write_zones_csv(zones, model, data, savepath=None):
+    membership_map = defaultdict(list)
+    for z in zones:
+        membership_map[z.membership].append(z)
+    for membership, zones in membership_map.items():
+        csv_data = defaultdict(list)
+        zones_name = '_'.join((zones[0].model_name, membership))
+        for z in zones:
+            csv_data['class'].append(membership)
+            csv_data['id'].append(z.identifier)
+            csv_data['top'].append(z.top)
+            csv_data['right'].append(z.right)
+            csv_data['bottom'].append(z.bottom)
+            csv_data['left'].append(z.left)
+            csv_data['area'].append(z.area)
+        df = pd.DataFrame(data=csv_data)
+        if savepath is None:
+            outpath = zones_name + '.csv'
+        else:
+            outpath = os.path.join(savepath, zones_name + '.csv')
+        df.to_csv(outpath)
+
+
+def write_zone_maps(zones, model, data, x_pad=None, y_pad=None, savepath=None):
     """
     Writes a raster displaying zones.
 
@@ -515,12 +488,14 @@ def write_zone_map(zone, membership, model, x_pad, y_pad, data, contiguous, outd
     data: mtpy.modeling.modem.Data
         ModEM data object. Used to get survery center coordinate.
     contiguous: bool
-        Whether or not contiguous zones are being considered. See 
+        Whether or not contiguous zones are being considered. See
         `find_zones` description for more detail.
     outdir: str or path, optional
         The directory to write the map to. If not provided, then maps
         are saved to the working directory.
     """
+    x_pad = model.pad_east if x_pad is None else x_pad
+    y_pad = model.pad_north if y_pad is None else y_pad
     ce = get_centers(strip_padding(model.grid_east, x_pad))
     cn = get_centers(strip_padding(model.grid_north, y_pad))
     x_res = model.cell_size_east
@@ -528,16 +503,31 @@ def write_zone_map(zone, membership, model, x_pad, y_pad, data, contiguous, outd
     center = data.center_point
     origin = get_gdal_origin(ce, x_res, center.east, cn, y_res, center.north)
     epsg_code = gis_tools.get_epsg(center.lat.item(), center.lon.item())
-    if outdir is None:
-        # save to working directory
-        output_file = f"{membership.replace(' ', '_')}_zone_map.tif"
-    else:
-        if not os.path.exists(outdir):
-            os.mkdir(outdir)
-        output_file = os.path.join(outdir, f"{membership.replace(' ', '_')}_zone_map.tif")
-    if not contiguous:
-        zone = np.where(zone != 0, 1, 0)
-    array2geotiff_writer(output_file, origin, x_res, -y_res, zone, epsg_code=epsg_code, ndv=0)
+    membership_dict = defaultdict(list)
+    for z in zones:
+        membership_dict[z.membership].append(z)
+    for membership, zones in membership_dict.items():
+        if outdir is None:
+            # save to working directory
+            output_file = f"{membership.replace(' ', '_')}_zone_map.tif"
+        else:
+            if not os.path.exists(outdir):
+                os.mkdir(outdir)
+            output_file = os.path.join(savepath, f"{membership.replace(' ', '_')}_zone_map.tif")
+            zone = sum([np.where(z.mask == 1, z.identifier, 0) for z in zones])
+        array2geotiff_writer(output_file, origin, x_res, -y_res, zone, epsg_code=epsg_code, ndv=0)
+
+
+def _load_model(model_file):
+    model = Model()
+    model.read_model_file(model_fn=model_file)
+    return model
+
+
+def _load_data(data_file):
+    data = Data()
+    data.read_data_file(data_fn=data_file)
+    return data
 
 
 # Test code
@@ -545,10 +535,16 @@ if __name__ == '__main__':
     outdir = os.path.join('/', 'tmp', os.path.splitext(os.path.basename(sys.argv[1]))[0])
     if not os.path.exists(outdir):
         os.mkdir(outdir)
-    zones = find_zones(sys.argv[1], depths=10, method='value', value_ranges=[10, 100, 10000],
-                       contiguous=True, write_maps=True, data_file=sys.argv[2],
-                       map_outdir='/tmp/maps')
+
+    model = _load_model(sys.argv[1])
+    data = _load_data(sys.argv[2])
+
+    zones = find_zones(model, data, depths=10, method='value', value_ranges=[10, 100, 10000],
+                       contiguous=True)
+
+    write_zone_maps(zones, model, data, savepath=outdir)
+    write_zones_csv(zones, model, data, savepath=outdir)
     for z in zones:
         z.plot(res_scaling='log', min_depth=500, max_depth=10000, num_y_ticks=5,
-               figsize=(5, 10), savepath='/tmp/test_plots')
-
+               figsize=(5, 10), savepath=outdir)
+        z.write_csv(savepath=outdir)
