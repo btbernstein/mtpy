@@ -387,18 +387,18 @@ def find_zones(model, data, x_pad=None, y_pad=None, z_pad=None, depths=None,
 
     # Construct zone objects - get some additional information
     model_name = os.path.splitext(os.path.basename(model.model_fn))[0]
-    ce = get_centers(strip_padding(model.grid_east, x_pad))
-    cn = get_centers(strip_padding(model.grid_north, y_pad))
-    grid_e, grid_n = np.meshgrid(ce, cn)
-
-    x_res = model.cell_size_east
-    y_res = model.cell_size_north
-    pixel_size = x_res * y_res
 
     center = data.center_point
     epsg_code = gis_tools.get_epsg(center.lat.item(), center.lon.item())
     wkt = EPSG_DICT[epsg_code]
     south_positive = '+south' in wkt
+    ce = get_centers(strip_padding(model.grid_east, x_pad)) + center.east
+    cn = get_centers(strip_padding(model.grid_north, y_pad)) + center.north
+    grid_e, grid_n = np.meshgrid(ce, cn)
+
+    x_res = model.cell_size_east
+    y_res = model.cell_size_north
+    pixel_size = x_res * y_res
 
     zones = []
     for l in np.unique(labels):
@@ -414,27 +414,40 @@ def find_zones(model, data, x_pad=None, y_pad=None, z_pad=None, depths=None,
                 zi = zone == x
             else:
                 zi = zone != 0
-            z_res = res[zi]
+            zone_res = res[zi]
             n_cells, e_cells, top, right, bottom, left, area = \
                 get_zone_dimensions(zi, grid_e, grid_n, pixel_size, south_positive)
-            stations = None
-            # stations = get_stations_in_zone(zi, grid_e, grid_n, x_res, y_res)
-            zones.append(Zone(model_name, mm[l], x, z_res, grid_z, zi, n_cells, e_cells,
+            found = []
+            stations, found = \
+                get_stations_in_zone(zi, grid_e, grid_n, x_res, y_res,
+                                     data.station_locations, found)
+            zones.append(Zone(model_name, mm[l], x, zone_res, grid_z, zi, n_cells, e_cells,
                               top, right, bottom, left, area, epsg_code,
                               stations, min_depth, max_depth, method, method_range, pixel_size))
-
     return zones
 
 
-def get_stations_in_zone(zi, grid_e, grid_n, x_res, y_res, station_dict):
-    for station, mt_obj in station_dict.items():
-        zge = grid_e[zi]
-        zgn = grid_n[zi]
-        print(mt_obj.east, mt_obj.north)
-        print(mt_obj.lat, mt_obj.lon)
-        if mt_obj.east in zge + x_res / 2 or mt_obj.east in zge - x_res / 2 \
-                and mt_obj.north in zgn + y_res / 2 or mt_obj.north in zgn - y_res / 2:
-            print(f"{station} in zone")
+def get_stations_in_zone(zi, grid_e, grid_n, x_res, y_res, station_locations, found):
+    zge = grid_e[zi]
+    zgn = grid_n[zi]
+    in_zone = []
+    for i in found:
+        del station_locations.north[i]
+        del station_locations.east[i]
+        del station_locations.station[i]
+    for i, east_cell in np.ndenumerate(zge):
+        east_min = east_cell - x_res / 2
+        east_max = east_cell + x_res / 2
+        north_cell = zgn[i]
+        north_min = north_cell - y_res / 2
+        north_max = north_cell + y_res / 2
+        for j, east in np.ndenumerate(station_locations.east):
+            north = station_locations.north[j]
+            name = station_locations.station[j]
+            if east_min <= east <= east_max and north_min <= north <= north_max:
+                in_zone.append(name)
+                found.append(j)
+    return in_zone, found
 
 
 def get_zone_dimensions(zi, grid_e, grid_n, pixel_size, south_positive=False):
@@ -465,6 +478,7 @@ def write_zones_csv(zones, model, data, savepath=None):
             csv_data['bottom'].append(z.bottom)
             csv_data['left'].append(z.left)
             csv_data['area'].append(z.area)
+            csv_data['stations'].append(z.stations)
         df = pd.DataFrame(data=csv_data)
         if savepath is None:
             outpath = zones_name + '.csv'
@@ -543,10 +557,9 @@ if __name__ == '__main__':
 
     model = _load_model(sys.argv[1])
     data = _load_data(sys.argv[2])
-
     zones = find_zones(model, data, depths=10, method='value', value_ranges=[10, 100, 10000],
                        contiguous=True)
-
+    
     write_zone_maps(zones, model, data, savepath=outdir)
     write_zones_csv(zones, model, data, savepath=outdir)
     for z in zones:
