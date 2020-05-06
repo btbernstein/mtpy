@@ -15,10 +15,18 @@ import os.path as op
 
 import numpy as np
 
-from mtpy.modeling.modem.zones import find_zones, plot_zone_res
+from mtpy.modeling.modem import Model, Data
+from mtpy.modeling.modem.zones import find_zones, write_zone_maps, write_zones_csv
 
 
 model_file = '/path/to/model_file.rho'
+model = Model()
+model.read_model_file(model_fn=model_file)
+
+data_file = '/path/to/data_file.dat'
+data = Data()
+data.read_data_file(data_fn=data_file)
+
 outdir = '/path/to/outdir/for/plots'
 if not os.path.exists(outdir):
     os.mkdir(outdir)
@@ -96,16 +104,30 @@ x_pad = None
 y_pad = None
 z_pad = None
 
-# 'zones' is a dictionary of {class: [zones]}
-zones, model_depths = find_zones(model_file, x_pad=x_pad, y_pad=y_pad, z_pad=z_pad,
-                                 depths=depths,
-                                 method=method, magnitude_range=magntiude_range,
-                                 contiguous=contiguous)
+zones = find_zones(model, data, x_pad=x_pad, y_pad=y_pad, z_pad=z_pad,
+                   depths=depths,
+                   method=method, magnitude_range=magntiude_range,
+                   contiguous=contiguous)
 
-for membership_class, zone in zones.items():
-    # If contiguous is False, there will be only one '0' subzone comprising all cells in that class
-    # min_depth, max_depth: depth range to plot
-    # res_scaling: 'log' for log10, None for no scaling
-    for subzone_index, subzone in enumerate(zone):
-        plot_zone_res(subzone, model_depths, f'{membership_class}: zone {subzone_index}',
-                      outdir, min_depth=10, max_depth=10000, res_scaling='log')
+# Outputs a geotiff for each 'membership class' (i.e. each bin as
+# defined by the selection method) showing the locations of zones.
+write_zone_maps(zones, model, data, x_pad=x_pad, y_pad=y_pad, savepath=outdir)
+
+# Outputs a CSV for each membership class containing the dimensions
+# for zones and contained stations
+write_zones_csv(zones, model, data, savepath=outdir)
+
+for z in zones:
+    # Plots the resistivity (mean across depth) against the selected
+    # depth range
+    # res_scaling: 'log' or None
+    # depth_scaling: 'm' or 'km'
+    # min_depth, max_depth: limits of the depth range to plot against in
+    # units as defined by 'depth_scaling'
+    # num_y_ticks: intervals to break depth range into
+    z.plot(res_scaling='log', depth_scaling='km', min_depth=0.5, max_depth=10, num_y_ticks=5,
+           figsize=(10, 5), savepath=outdir)
+    # Outputs a CSV for the zone that contains east/north coordinates
+    # and resistivity for each depth for each cell in the zone
+    z.write_csv(savepath=outdir)
+
