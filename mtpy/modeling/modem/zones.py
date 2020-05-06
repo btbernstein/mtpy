@@ -74,14 +74,19 @@ class Zone(object):
         df = pd.DataFrame(csv_data)
         df.to_csv(savepath)
 
-    def plot(self, res_scaling=None, min_depth=None, max_depth=None, num_y_ticks=5,
-             figsize=(5, 10), savepath=None):
+    def plot(self, res_scaling='log', depth_scaling='m', min_depth=None, max_depth=None,
+             num_y_ticks=5, figsize=(5, 10), savepath=None):
         """Plots the resistivity of a zone against model depth.
 
         zone_res: np.ndarray
         """
-        min_depth = min(self.depths) if min_depth is None else min_depth
-        max_depth = max(self.depths) if max_depth is None else max_depth
+        if depth_scaling == 'km':
+            model_depths = self.depths / 1000
+        else:
+            model_depths = self.depths
+        min_depth = min(model_depths) if min_depth is None else min_depth
+        max_depth = max(model_depths) if max_depth is None else max_depth
+        depth_scaling = 'm' if depth_scaling is None else depth_scaling
         fig, ax = plt.subplots(figsize=figsize)
         ax.set_ylim(max_depth, min_depth)
         step = max_depth // num_y_ticks
@@ -90,7 +95,7 @@ class Zone(object):
         ticks.insert(0, max_depth)
         ticks.append(min_depth)
         ax.set_yticks(ticks)
-        ax.set_ylabel("Depth, m")
+        ax.set_ylabel(f"Depth, {depth_scaling}")
         zone_name = ' '.join((self.model_name, self.membership, str(self.identifier)))
         ax.set_title(zone_name)
         zone_mean_res = np.mean(self.res, axis=0)
@@ -103,10 +108,10 @@ class Zone(object):
             ax.set_xlabel("Resistivity, " + r"$\Omega$" + "m (log10)")
         else:
             ax.set_xlabel("Resistivity, " + r"$\Omega$" + "m (no scaling)")
-        ax.plot(zone_mean_res, self.depths, color='k', lw=1.5)
-        ax.plot(zone_min_res, self.depths, color='k', alpha=0.1, ls='--')
-        ax.plot(zone_max_res, self.depths, color='k', alpha=0.1, ls='--')
-        ax.fill_betweenx(self.depths, zone_min_res, zone_max_res, alpha=0.1, color='k')
+        ax.plot(zone_mean_res, model_depths, color='k', lw=1.5)
+        ax.plot(zone_min_res, model_depths, color='k', alpha=0.1, ls='--')
+        ax.plot(zone_max_res, model_depths, color='k', alpha=0.1, ls='--')
+        ax.fill_betweenx(model_depths, zone_min_res, zone_max_res, alpha=0.1, color='k')
         ax.xaxis.set_tick_params(which='minor', bottom=True)
         if savepath is None:
             savepath = zone_name.replace(' ', '_')
@@ -545,6 +550,6 @@ if __name__ == '__main__':
     write_zone_maps(zones, model, data, savepath=outdir)
     write_zones_csv(zones, model, data, savepath=outdir)
     for z in zones:
-        z.plot(res_scaling='log', min_depth=500, max_depth=10000, num_y_ticks=5,
+        z.plot(res_scaling='log', depth_scaling='km', min_depth=0.5, max_depth=10, num_y_ticks=5,
                figsize=(5, 10), savepath=outdir)
         z.write_csv(savepath=outdir)
