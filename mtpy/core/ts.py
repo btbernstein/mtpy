@@ -386,7 +386,7 @@ class MTTS(object):
             return
 
         if start_time is None:
-            print('Start time is None, skipping calculating index')
+            #print('Start time is None, skipping calculating index')
             return
         dt_freq = '{0:.0f}N'.format(1./(sampling_rate)*1E9)
 
@@ -395,10 +395,10 @@ class MTTS(object):
                                  freq=dt_freq)
 
         self.ts.index = dt_index
-        print("   * Reset time seies index to start at {0}".format(start_time))
+        print("INFO: Reset time seies index to start at {0}".format(start_time))
 
     def apply_addaptive_notch_filter(self, notches=None, notch_radius=0.5,
-                                     freq_rad=0.5, rp=0.1):
+                                     freq_rad=0.5, rp=0.1, inplace=True):
         """
         apply notch filter to the data that finds the peak around each
         frequency.
@@ -409,6 +409,11 @@ class MTTS(object):
                            if an empty dictionary is input the filter looks
                            for 60 Hz and harmonics to filter out.
         :type notch_dict: dictionary
+        
+        :param inplace: Sets the filtered array internally if True, otherwise
+                        returns the filtered array
+        :type inplace: Boolean [ True | False ]
+        
 
         """
         if notches is None:
@@ -421,9 +426,7 @@ class MTTS(object):
                   'rp':rp}
 
         ts, filt_list = mtfilter.adaptive_notch_filter(self.ts.data, **kwargs)
-
-        self.ts.data = ts
-
+        
         print('\t Filtered frequency with bandstop:')
         for ff in filt_list:
             try:
@@ -431,15 +434,24 @@ class MTTS(object):
                                                              np.nan_to_num(ff[1])))
             except ValueError:
                 pass
+        
+        if inplace:
+            self.ts.data = ts
+        else:
+            return ts
 
     # decimate data
-    def decimate(self, dec_factor=1):
+    def decimate(self, dec_factor=1, inplace=True):
         """
         decimate the data by using scipy.signal.decimate
 
         :param dec_factor: decimation factor
         :type dec_factor: int
 
+        :param inplace: reassigns ts internally and replaces sampling rate
+                        if True
+        :type inplace: boolean [ True | False ]
+        
         * refills ts.data with decimated data and replaces sampling_rate
 
         """
@@ -460,11 +472,18 @@ class MTTS(object):
             else:
                 decimated_data = signal.decimate(self.ts.data, dec_factor, n=8)
             start_time = str(self.start_time_utc)
-            self.ts = decimated_data
-            self.sampling_rate /= float(dec_factor)
-            self._set_dt_index(start_time, self.sampling_rate)
+            
+            if inplace:
+                self.ts = decimated_data
+                self.sampling_rate /= float(dec_factor)
+                self._set_dt_index(start_time, self.sampling_rate)
+            else:
+                return decimated_data
+        else:
+            if not inplace:
+                return None
 
-    def low_pass_filter(self, low_pass_freq=15, cutoff_freq=55):
+    def low_pass_filter(self, low_pass_freq=15, cutoff_freq=55, inplace=True):
         """
         low pass the data
 
@@ -476,11 +495,16 @@ class MTTS(object):
 
         * filters ts.data
         """
-
-        self.ts = mtfilter.low_pass(self.ts.data,
-                                    low_pass_freq,
-                                    cutoff_freq,
-                                    self.sampling_rate)
+        if inplace:
+            self.ts = mtfilter.low_pass(self.ts.data,
+                                        low_pass_freq,
+                                        cutoff_freq,
+                                        self.sampling_rate)
+        else:
+            return mtfilter.low_pass(self.ts.data,
+                                        low_pass_freq,
+                                        cutoff_freq,
+                                        self.sampling_rate)
 
     ###------------------------------------------------------------------
     ### read and write file types
