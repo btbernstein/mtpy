@@ -5,7 +5,6 @@ import numpy as np
 import gdal
 import osr
 
-from mtpy.modeling.modem import Model
 from mtpy.utils.mtpylog import MtPyLog
 
 _logger = MtPyLog.get_mtpy_logger(__name__)
@@ -170,18 +169,13 @@ def list_depths(model, zpad=None):
     Return a list of available depth slices in the model.
 
     Args:
-        model_file (str): Path to ModEM .rho file.
+        model (Model): ModEM Model object
         zpad (int, optional): Number of padding slices to remove from
             bottom of model. If None, model pad_z value is used.
 
     Returns:
         list of float: A list of available depth slices.
     """
-    # Try to insantiate from model file
-    if not isinstance(model, Model):
-        model = Model()
-        model.read_model_file(model_fn=model)
-
     cz = get_centers(model.grid_z)
     zpad = model.pad_z if zpad is None else zpad
     return cz[:-zpad]
