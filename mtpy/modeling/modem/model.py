@@ -263,6 +263,10 @@ class Model(object):
         self.z_target_depth = 50000
         self.z_bottom = 300000
 
+        # custom factors for depth increase
+        self.z_custom_factors = None
+        self.z_custom_depth_ranges = None
+
         # number of vertical layers
         self.n_layers = 30
 
@@ -516,6 +520,10 @@ class Model(object):
                                                         self.n_layers,
                                                         self.pad_z,
                                                         self.pad_stretch_v)
+        elif self.z_mesh_method == 'by_range':
+            self.nodes_z, z_grid = self.make_z_mesh_by_range()
+            self.n_layers = len(self.grid_z)
+
         else:
             raise NameError("Z mesh method \"{}\" is not supported".format(self.z_mesh_method))
 
@@ -575,31 +583,106 @@ class Model(object):
                                                target_depth,
                                                n_layers - n_pad)
 
+        return self._make_z_mesh_grid_and_padding(log_z)
+
+    def make_z_mesh_by_range(self):
+        """
+        Make a Z mesh by supplying a z1 layer (starting cell thickness), target depth and lists
+        of depth ranges and corresponding depth increase factor.
+        """
+        if self.z_custom_factors is None:
+            raise TypeError(
+                "'z_custom_factors' must be supplied when making a "
+                "mesh using 'by_range' method.")
+        if self.z_custom_depth_ranges is None:
+            self.z_custom_depth_ranges = []
+
+        depth_ranges = sorted(self.z_custom_depth_ranges)
+        if any(x < self.z1_layer for x in depth_ranges):
+            raise ValueError
+        if any(x > self.z_target_depth for x in depth_ranges):
+            raise ValueError
+        if len(self.z_custom_factors) != len(self.z_custom_depth_ranges) + 1:
+            raise ValueError(f"{len(self.z_custom_factors)} != {len(self.z_custom_depth_ranges) + 1}")
+
+        def _constant(start, stop, value):
+            return np.arange(start, stop, value)
+
+        def _factor(start, stop, value):
+            z = start
+            nodes = []
+            while z < stop:
+                nodes.append(z)
+                z *= v
+            return np.asarray(nodes)
+
+        def _log(start, stop, value):
+            return np.logspace(np.log10(start), np.log10(stop), value)
+
+        # Handle no depth ranges provided (z1_layer to target_depth)
+        if len(depth_ranges) == 0:
+            start = self.z1_layer
+            stop = self.z_target_depth
+            v, t = self.z_custom_factors[0]
+            if t == 'c':
+                nodes = _constant(start, stop, v)
+            elif t == 'f':
+                nodes = _factor(start, stop, v)
+            elif t == 'l':
+                nodes = _log(start, stop, v)
+            else:
+                raise ValueError
+        # Handle depth ranges
+        else:
+            # Make the list of boundaries into depth range pairs to make
+            # things simpler.
+            depth_ranges.insert(0, self.z1_layer)
+            depth_ranges.append(self.z_target_depth)
+            dr_pairs = []
+            for i, d in enumerate(depth_ranges):
+                if i == len(depth_ranges) - 1:
+                    pass
+                else:
+                    dr_pairs.append((d, depth_ranges[i + 1]))
+                
+            nodes = []
+            for i, (dr, value) in enumerate(zip(dr_pairs, self.z_custom_factors)):
+                v, t = value
+                if t == 'c':
+                    fn = _constant
+                elif t == 'f':
+                    fn = _factor
+                elif t == 'l':
+                    fn = _log
+                else:
+                    raise ValueError
+
+                nodes.append(fn(dr[0], dr[1], v))
+
+            nodes = np.concatenate(nodes)
+
+        return self._make_z_mesh_grid_and_padding(nodes)
+
+    def _make_z_mesh_grid_and_padding(self, z_nodes):
+        print(z_nodes)
         if self.z_layer_rounding is not None:
-            z_nodes = np.around(log_z, decimals=self.z_layer_rounding)
+            z_nodes = np.around(z_nodes, decimals=self.z_layer_rounding)
         else:
             # round any values less than 100 to the same s.f. as z1_layer
-            z_nodes = np.around(log_z[log_z < 100],
-                                decimals=-int(np.floor(np.log10(self.z1_layer))))
+            lt = np.around(z_nodes[z_nodes < 100],
+                           decimals=-int(np.floor(np.log10(self.z1_layer))))
             # round any values greater than or equal to 100 to the nearest 100
-            z_nodes = np.append(z_nodes, np.around(log_z[log_z >= 100],
-                                                   decimals=-2))
-
-        # index of top of padding
-        #itp = len(z_nodes) - 1
-
+            gt = np.around(z_nodes[z_nodes >= 100],
+                           decimals=-2)
+            z_nodes = np.concatenate([lt, gt])
+        print(z_nodes)
         # padding cells in the vertical direction
         z_0 = np.float(z_nodes[-1])
-        for ii in range(1, n_pad + 1):
-            pad_d = np.round(z_0 * pad_stretch ** ii, -2)
+        for ii in range(1, self.pad_z + 1):
+            pad_d = np.round(z_0 * self.pad_stretch_v ** ii, -2)
             z_nodes = np.append(z_nodes, pad_d)
-        # add air layers and define ground surface level.
-        # initial layer thickness is same as z1_layer
-        # z_nodes = np.hstack([[z1_layer] * n_air, z_nodes])
 
-        # make an array of absolute values
         z_grid = np.array([z_nodes[:ii].sum() for ii in range(z_nodes.shape[0] + 1)])
-
         return z_nodes, z_grid
 
     def add_layers_to_mesh(self, n_add_layers=None, layer_thickness=None,
