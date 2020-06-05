@@ -21,6 +21,7 @@ import pandas as pd
 from mpl_toolkits.axes_grid1 import make_axes_locatable
 from sklearn.cluster import MeanShift, estimate_bandwidth
 from scipy import ndimage
+from shapely.geometry import Polygon, Point
 
 from mtpy.modeling.modem import Model, Data
 from mtpy.utils.mtpylog import MtPyLog
@@ -122,6 +123,47 @@ class Zone(object):
         plt.close(fig)
 
 
+def _polygons(grid_e, grid_n, polygons):
+    """Assigns cell membership based on falling within a polygon.
+
+    This method doesn't care if polygons intersect - if a cell falls
+    within multiple polygons it will be assigned to the last polygon
+    it belonged to in order of processing.
+
+    Parameters
+    ----------
+    grid_e: np.ndarray
+        Eastern part of georeferenced meshgrid.
+    grid_n: np.ndarray
+        Northern part of georeferenced meshgrid.
+    polygons: [Polygon], or [(Polygon, name)]
+        A list of Polygons. Can also be provided as a pair with names.
+        If a name is provided, this is the title of the class
+        for cells that fall within it. If no name is provided, then
+        the name will be the index + 1 of the polygon's position in the
+        list.
+    """
+    labels = np.zeros(grid_e.shape)
+    membership_map = {}
+    membership_map[0] = 'undefined'
+    for i, polygon in enumerate(polygons):
+        if isinstance(polygon, tuple):
+            name = polygon[1]
+            polygon = polygon[0]
+        else:
+            name = str(i + 1)
+        print(f"processing polygon {name}")
+        membership_map[i + 1] = name
+        for ei, e in np.ndenumerate(grid_e):
+            for ni, n in np.ndenumerate(grid_n):
+                point = Point(e, n)
+                print(point)
+                if point.within(polygon):
+                    print('within polygon')
+                    labels[ei, ni] = i
+    return labels, membership_map
+
+
 def _meanshift_cluster(res):
     """Uses MeanShift clustering to label cells.
 
@@ -157,7 +199,7 @@ def _magnitude(res, mag_range):
         specific range.
     mag_range: int
         See description in `find_zones` docstring.
-            
+
     Returns
     -------
         A 2D array of shape (res.shape[0], res.shape[1]) where groups of
@@ -233,7 +275,8 @@ def _label_zones(labels, l):
 
 
 def find_zones(model, data, x_pad=None, y_pad=None, z_pad=None, depths=None,
-               method='cluster', magnitude_range=None, value_ranges=None, contiguous=False):
+               method='cluster', magnitude_range=None, value_ranges=None,
+               polygons=None, contiguous=False):
     """Automatically divides a ModEM resistivity model into zones based
     on areas that have similar resistivity and other search parameters.
 
@@ -260,11 +303,11 @@ def find_zones(model, data, x_pad=None, y_pad=None, z_pad=None, depths=None,
         selecting zones.
     method: str, optional
         The method for selecting zones. Valid values are 'cluter',
-        'magnitude' and 'value'. Cluster will use a MeanShift model to
-        automatically cluster the model into zones. Magnitude will
-        divide into zones based on the magnitude of mean resistivity.
-        Value will divide into zones based on mean resistivity falling
-        within a value range.
+        'magnitude', 'value' and 'polygons'. Cluster will use a
+        MeanShift model to automatically cluster the model into zones.
+        Magnitude will divide into zones based on the magnitude of mean
+        resistivity. Value will divide into zones based on mean
+        resistivity falling within a value range.
     magnitude_range: int, optional
         A single integer specifying a range of orders of magnitude to
         group zones into. E.g. 2 might result in bins of 0.1 - 1,
@@ -319,6 +362,11 @@ def find_zones(model, data, x_pad=None, y_pad=None, z_pad=None, depths=None,
         The model grid_z. This is returned for convenience of plotting
         zones against model depth.
     """
+    # Validation
+    valid_methods = ['magnitude', 'value', 'cluster', 'polygons']
+    if method not in valid_methods:
+        raise ValueError(f"Select method '{method}' is invalid. Valid methods are {valid_methods}")
+
     if isinstance(depths, tuple) or isinstance(depths, list):
         if depths[1] <= depths[0]:
             raise ValueError("Provided depth range is invalid. Max depth ({}) must be less than "
@@ -351,43 +399,19 @@ def find_zones(model, data, x_pad=None, y_pad=None, z_pad=None, depths=None,
                                      "you haven't specified the same boundary twice).")
                 prev = vr
 
+    elif method == 'polygons':
+        if polygons is None:
+            raise TypeError("polygons must be provided when using 'polygons' method")
+
+    # Strip padding cells from the res model and depth grid
     x_pad = model.pad_east if x_pad is None else x_pad
     y_pad = model.pad_north if y_pad is None else y_pad
     z_pad = model.pad_z if z_pad is None else z_pad
-
-    # Strip padding cells from the res model and depth grid
     res = strip_resgrid(model.res_model, y_pad, x_pad, z_pad)
     grid_z = strip_padding(get_centers(model.grid_z), z_pad, keep_start=True)
 
-    # Get indices for the provided depth/depth range
-    start_ind = get_depth_indices(grid_z, min_depth).pop()
-    end_ind = get_depth_indices(grid_z, max_depth).pop()
-    inds = range(start_ind, end_ind + 1)
-
-    if not inds:
-        raise ValueError("No indices could be found in model depth grid for the depths provided.")
-    if len(inds) == 1:
-        # Dealing with a single depth - don't take mean
-        res_sd = res[:, :, inds]  # res for selected depths
-    else:
-        # Dealing with multiple depths - take mean across depths
-        res_sd = np.mean(res[:, :, inds], axis=2)  # res for selected depths
-
-    if method == 'cluster':
-        labels, mm = _meanshift_cluster(res_sd)
-        method_range = None
-    elif method == 'magnitude':
-        labels, mm = _magnitude(res_sd, magnitude_range)
-        method_range = magnitude_range
-    elif method == 'value':
-        labels, mm = _value(res_sd, value_ranges)
-        method_range = value_ranges
-    else:
-        raise ValueError("Selected method not recognised.")
-
-    # Construct zone objects - get some additional information
-    model_name = os.path.splitext(os.path.basename(model.model_fn))[0]
-
+    # Create georeferenced grid, for assigning zones based on polygon membership,
+    # calculating zone dimensions and finding stations in zones
     center = data.center_point
     epsg_code = gis_tools.get_epsg(center.lat.item(), center.lon.item())
     wkt = EPSG_DICT[epsg_code]
@@ -396,9 +420,48 @@ def find_zones(model, data, x_pad=None, y_pad=None, z_pad=None, depths=None,
     cn = get_centers(strip_padding(model.grid_north, y_pad)) + center.north
     grid_e, grid_n = np.meshgrid(ce, cn)
 
+    # Find zones based on resistivity
+    res_method = method == 'cluster' or method == 'magnitude' or method == 'value'
+    # or find zones based on space
+    spatial_method = method == 'polygons'
+
+    if res_method:
+        # Get indices for the provided depth/depth range
+        start_ind = get_depth_indices(grid_z, min_depth).pop()
+        end_ind = get_depth_indices(grid_z, max_depth).pop()
+        inds = range(start_ind, end_ind + 1)
+        if not inds:
+            raise ValueError("No indices could be found in model depth grid for the depths provided.")
+
+        if len(inds) == 1:
+            # Dealing with a single depth - don't take mean
+            res_sd = res[:, :, inds]  # res for selected depths
+        else:
+            # Dealing with multiple depths - take mean across depths
+            res_sd = np.mean(res[:, :, inds], axis=2)  # res for selected depths
+
+        if method == 'cluster':
+            labels, mm = _meanshift_cluster(res_sd)
+            method_range = None
+        elif method == 'magnitude':
+            labels, mm = _magnitude(res_sd, magnitude_range)
+            method_range = magnitude_range
+        elif method == 'value':
+            labels, mm = _value(res_sd, value_ranges)
+            method_range = value_ranges
+    elif spatial_method:
+        labels, mm = _polygons(grid_e, grid_n, polygons)
+        method_range = None
+    else:
+        raise ValueError("Method not valid. Shouldn't hit this error (method validity should be "
+                         "checked at start of function).")
+
+    # Needed for calcuating zone dimensions
     x_res = model.cell_size_east
     y_res = model.cell_size_north
     pixel_size = x_res * y_res
+
+    model_name = os.path.splitext(os.path.basename(model.model_fn))[0]
 
     zones = []
     for l in np.unique(labels):
@@ -509,7 +572,7 @@ def write_zone_maps(zones, model, data, x_pad=None, y_pad=None, savepath=None):
     contiguous: bool
         Whether or not contiguous zones are being considered. See
         `find_zones` description for more detail.
-    outdir: str or path, optional
+    savepath: str or path, optional
         The directory to write the map to. If not provided, then maps
         are saved to the working directory.
     """
@@ -526,12 +589,12 @@ def write_zone_maps(zones, model, data, x_pad=None, y_pad=None, savepath=None):
     for z in zones:
         membership_dict[z.membership].append(z)
     for membership, zones in membership_dict.items():
-        if outdir is None:
+        if savepath is None:
             # save to working directory
             output_file = f"{membership.replace(' ', '_')}_zone_map.tif"
         else:
-            if not os.path.exists(outdir):
-                os.mkdir(outdir)
+            if not os.path.exists(savepath):
+                os.mkdir(savepath)
             output_file = os.path.join(savepath, f"{membership.replace(' ', '_')}_zone_map.tif")
             zone = sum([np.where(z.mask == 1, z.identifier, 0) for z in zones])
         array2geotiff_writer(output_file, origin, x_res, -y_res, zone, epsg_code=epsg_code, ndv=0)
