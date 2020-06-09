@@ -18,10 +18,12 @@ import matplotlib
 import matplotlib.pyplot as plt
 import matplotlib.cm as mpl_cm
 import pandas as pd
+import geopandas as gpd
 from mpl_toolkits.axes_grid1 import make_axes_locatable
 from sklearn.cluster import MeanShift, estimate_bandwidth
 from scipy import ndimage
 from shapely.geometry import Polygon, Point
+from shapely.strtree import STRtree
 
 from mtpy.modeling.modem import Model, Data
 from mtpy.utils.mtpylog import MtPyLog
@@ -123,7 +125,7 @@ class Zone(object):
         plt.close(fig)
 
 
-def _polygons(grid_e, grid_n, polygons):
+def _polygons(grid_e, grid_n, polygons, epsg_code):
     """Assigns cell membership based on falling within a polygon.
 
     This method doesn't care if polygons intersect - if a cell falls
@@ -146,21 +148,24 @@ def _polygons(grid_e, grid_n, polygons):
     labels = np.zeros(grid_e.shape)
     membership_map = {}
     membership_map[0] = 'undefined'
+    points = []
+    index = []
+    for i in range(grid_e.shape[0]):
+        for j in range(grid_e.shape[1]):
+            p = Point(grid_e[i, j], grid_n[i, j])
+            points.append(p)
+            index.append((i, j))
+    points_gds = gpd.GeoSeries(points, index, crs=f'epsg:{epsg_code}')
     for i, polygon in enumerate(polygons):
-        if isinstance(polygon, tuple):
-            name = polygon[1]
-            polygon = polygon[0]
-        else:
-            name = str(i + 1)
-        print(f"processing polygon {name}")
+        name = polygons.index[i]
+        if not isinstance(name, str):
+            name = i + 1
         membership_map[i + 1] = name
-        for ei, e in np.ndenumerate(grid_e):
-            for ni, n in np.ndenumerate(grid_n):
-                point = Point(e, n)
-                print(point)
-                if point.within(polygon):
-                    print('within polygon')
-                    labels[ei, ni] = i
+        intersection = points_gds.intersects(polygon)
+        # This hilarious line filters out False values i.e. non-intersecting points
+        intersection = intersection[intersection]
+        for j, _ in enumerate(intersection):
+            labels[intersection.index[j]] = i + 1
     return labels, membership_map
 
 
@@ -400,8 +405,11 @@ def find_zones(model, data, x_pad=None, y_pad=None, z_pad=None, depths=None,
                 prev = vr
 
     elif method == 'polygons':
-        if polygons is None:
-            raise TypeError("polygons must be provided when using 'polygons' method")
+        if not isinstance(polygons, gpd.GeoSeries):
+            raise TypeError("polygons must be provided when using 'polygons' method and must be of "
+                            "type geopadnas GeoSeries")
+        if not all(polygons.is_valid):
+            raise ValueError("Invalid polygons")
 
     # Strip padding cells from the res model and depth grid
     x_pad = model.pad_east if x_pad is None else x_pad
@@ -414,8 +422,7 @@ def find_zones(model, data, x_pad=None, y_pad=None, z_pad=None, depths=None,
     # calculating zone dimensions and finding stations in zones
     center = data.center_point
     epsg_code = gis_tools.get_epsg(center.lat.item(), center.lon.item())
-    wkt = EPSG_DICT[epsg_code]
-    south_positive = '+south' in wkt
+    south_positive = '+south' in EPSG_DICT[epsg_code]
     ce = get_centers(strip_padding(model.grid_east, x_pad)) + center.east
     cn = get_centers(strip_padding(model.grid_north, y_pad)) + center.north
     grid_e, grid_n = np.meshgrid(ce, cn)
@@ -450,7 +457,7 @@ def find_zones(model, data, x_pad=None, y_pad=None, z_pad=None, depths=None,
             labels, mm = _value(res_sd, value_ranges)
             method_range = value_ranges
     elif spatial_method:
-        labels, mm = _polygons(grid_e, grid_n, polygons)
+        labels, mm = _polygons(grid_e, grid_n, polygons, epsg_code)
         method_range = None
     else:
         raise ValueError("Method not valid. Shouldn't hit this error (method validity should be "
@@ -583,8 +590,9 @@ def write_zone_maps(zones, model, data, x_pad=None, y_pad=None, savepath=None):
     x_res = model.cell_size_east
     y_res = model.cell_size_north
     center = data.center_point
-    origin = get_gdal_origin(ce, x_res, center.east, cn, y_res, center.north)
     epsg_code = gis_tools.get_epsg(center.lat.item(), center.lon.item())
+    south_positive = '+south' in EPSG_DICT[epsg_code]
+    origin = get_gdal_origin(ce, x_res, center.east, cn, y_res, center.north)#, south_positive)
     membership_dict = defaultdict(list)
     for z in zones:
         membership_dict[z.membership].append(z)

@@ -96,7 +96,8 @@ def array2geotiff_writer(filename, origin, pixel_width, pixel_height, data,
 
 
 def get_gdal_origin(centers_east, east_cell_size, mesh_center_east,
-                    centers_north, north_cell_size, mesh_center_north):
+                    centers_north, north_cell_size, mesh_center_north,
+                    south_positive=False):
     """Works out the upper left X, Y points of a grid.
 
     Args:
@@ -106,14 +107,15 @@ def get_gdal_origin(centers_east, east_cell_size, mesh_center_east,
             respective directions.
         mesh_center_east, mesh_center_north (float): Center point
             of the survey area in some CRS system.
+        south_positive: True if a '+south' CRS, False otherwise.
 
     Return:
         float, float: The upper left coordinate of the image in
             relation to the survey center point. Used as GDAL origin.
     """
+    north_corner = centers_north[0] if south_positive else centers_north[-1]
     return (centers_east[0] + mesh_center_east - east_cell_size / 2,
-            centers_north[-1] + mesh_center_north + north_cell_size / 2)
-
+            north_corner + mesh_center_north + north_cell_size / 2)
 
 
 def get_centers(arr):
