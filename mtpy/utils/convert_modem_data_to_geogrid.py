@@ -180,7 +180,7 @@ def create_geogrid(data_file, model_file, out_dir, x_pad=None, y_pad=None, z_pad
         else:
             output_file = 'DepthSlice{:.0f}m.tif'.format(cz[di])
         output_file = os.path.join(out_dir, output_file)
-        array2geotiff_writer(output_file, origin, x_res, -y_res, data[::-1],
+        array2geotiff_writer(output_file, origin, x_res, y_res, data[::-1],
                              epsg_code=epsg_code, angle=angle, center=center,
                              rotate_origin=rotate_origin)
 
