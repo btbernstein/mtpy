@@ -2,6 +2,7 @@ import math
 import os
 
 import numpy as np
+import geopandas as gpd
 import gdal
 import osr
 
@@ -9,6 +10,23 @@ from mtpy.modeling.modem import Model
 from mtpy.utils.mtpylog import MtPyLog
 
 _logger = MtPyLog.get_mtpy_logger(__name__)
+
+
+def shapefile_to_geoseries(path, name_field='id'):
+    """Loads a shapefile as a GeoDataFrame and converts it to a 
+    GeoSeries. This is used for defining ModEM model zones by polygon.
+
+    Args:
+        path (str or bytes): Full path to the shapefile to load.
+        name_field (str): Name of the field containing the name of
+            each poylgon. Set as the 'index' field on the GeoSeries.
+
+    Returns:
+        GeoSeries: Shapefile shapes as a GeoSeries with index set as
+            'name_field' field.
+    """
+    df = gpd.read_file(path)
+    return gpd.GeoSeries(list(df.geometry), df[name_field])
 
 
 def rotate_transform(gt, angle, pivot_east, pivot_north):
