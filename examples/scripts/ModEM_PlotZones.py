@@ -14,8 +14,11 @@ import os
 import os.path as op
 
 import numpy as np
+import geopandas as gpd
+from shapely.geometry import Polygon
 
 from mtpy.modeling.modem import Model, Data
+from mtpy.utils.modem_utils import shapefile_to_geoseries
 from mtpy.modeling.modem.zones import find_zones, write_zone_maps, write_zones_csv
 
 
@@ -61,15 +64,35 @@ magntiude_range = 2
 #   E.g. value_ranges=[0, 100, 1000] will create 4 bins of -inf: 0,
 #   0: 100, 100: 1000, 1000: inf
 
-# method = 'value'
-# value_ranges = [1, 100, 1000]
+method = 'value'
+value_ranges = [1, 100, 1000]
 
 #   'cluster': use scikit learn's MeanShift clustering algorithm to
 #   automatically cluster zones based on average resistivities. This
 #   is experimental. Also note it is much slower than the other methods.
 #   This method doesn't require any additional parameters.
 
-# method = 'cluster'
+method = 'cluster'
+
+#  'polygons': use polygons to define zones spatially. Polygon
+#  coordinates can be provided directly, or read from a shapefile. These
+#  must be provided as a geopandas GeoSeries as the 'polygons' parameter
+#  to find_zones.
+
+method = 'polygons'
+
+# Provide polygons directly...
+poly_data = [Polygon([[556895, 7821291], [576972, 7806164], [553319, 7805064]]),
+             Polygon([[627445, 7867099], [619011, 7839077], [611937, 7857033]])]
+poly_epsg = 'epsg:32753'
+poly_names = ['area1', 'area2']
+polygons = gpd.GeoSeries(poly_data, poly_names, crs=poly_epsg)
+
+# Or read polygons from shapefile.
+# 'name_field' is the name of the field in the shapefile that each zone
+#  will be labelled after (uses the 'id' field by default).
+polygons = shapefile_to_geoseries('/path/to/shapefile',
+                                  name_field='name')
 
 # contiguous: whether cells have to be contiguous to be treated as a
 # zone. If True, then for each bin/membership class as defined by the
