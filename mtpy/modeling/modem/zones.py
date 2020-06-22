@@ -160,7 +160,7 @@ def _polygons(grid_e, grid_n, polygons, epsg_code):
         name = polygons.index[i]
         if not isinstance(name, str):
             name = i + 1
-        membership_map[i + 1] = name
+        membership_map[i + 1] = str(name)
         intersection = points_gds.intersects(polygon)
         # This hilarious line filters out False values i.e. non-intersecting points
         intersection = intersection[intersection]
@@ -409,7 +409,7 @@ def find_zones(model, data, x_pad=None, y_pad=None, z_pad=None, depths=None,
             raise TypeError("polygons must be provided when using 'polygons' method and must be of "
                             "type geopadnas GeoSeries")
         if not all(polygons.is_valid):
-            raise ValueError("Invalid polygons")
+            raise ValueError("Invalid polygons. Check that none of your provided polygons intersect.")
 
     # Strip padding cells from the res model and depth grid
     x_pad = model.pad_east if x_pad is None else x_pad
@@ -592,7 +592,7 @@ def write_zone_maps(zones, model, data, x_pad=None, y_pad=None, savepath=None):
     center = data.center_point
     epsg_code = gis_tools.get_epsg(center.lat.item(), center.lon.item())
     south_positive = '+south' in EPSG_DICT[epsg_code]
-    origin = get_gdal_origin(ce, x_res, center.east, cn, y_res, center.north)#, south_positive)
+    origin = get_gdal_origin(ce, x_res, center.east, cn, y_res, center.north, south_positive)
     membership_dict = defaultdict(list)
     for z in zones:
         membership_dict[z.membership].append(z)
@@ -605,7 +605,7 @@ def write_zone_maps(zones, model, data, x_pad=None, y_pad=None, savepath=None):
                 os.mkdir(savepath)
             output_file = os.path.join(savepath, f"{membership.replace(' ', '_')}_zone_map.tif")
             zone = sum([np.where(z.mask == 1, z.identifier, 0) for z in zones])
-        array2geotiff_writer(output_file, origin, x_res, -y_res, zone, epsg_code=epsg_code, ndv=0)
+        array2geotiff_writer(output_file, origin, x_res, y_res, zone, epsg_code=epsg_code, ndv=0)
 
 
 def _load_model(model_file):
