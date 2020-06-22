@@ -2,12 +2,31 @@ import math
 import os
 
 import numpy as np
+import geopandas as gpd
 import gdal
 import osr
 
+from mtpy.modeling.modem import Model
 from mtpy.utils.mtpylog import MtPyLog
 
 _logger = MtPyLog.get_mtpy_logger(__name__)
+
+
+def shapefile_to_geoseries(path, name_field='id'):
+    """Loads a shapefile as a GeoDataFrame and converts it to a 
+    GeoSeries. This is used for defining ModEM model zones by polygon.
+
+    Args:
+        path (str or bytes): Full path to the shapefile to load.
+        name_field (str): Name of the field containing the name of
+            each poylgon. Set as the 'index' field on the GeoSeries.
+
+    Returns:
+        GeoSeries: Shapefile shapes as a GeoSeries with index set as
+            'name_field' field.
+    """
+    df = gpd.read_file(path)
+    return gpd.GeoSeries(list(df.geometry), df[name_field])
 
 
 def rotate_transform(gt, angle, pivot_east, pivot_north):
@@ -95,7 +114,8 @@ def array2geotiff_writer(filename, origin, pixel_width, pixel_height, data,
 
 
 def get_gdal_origin(centers_east, east_cell_size, mesh_center_east,
-                    centers_north, north_cell_size, mesh_center_north):
+                    centers_north, north_cell_size, mesh_center_north,
+                    south_positive=False):
     """Works out the upper left X, Y points of a grid.
 
     Args:
@@ -105,14 +125,15 @@ def get_gdal_origin(centers_east, east_cell_size, mesh_center_east,
             respective directions.
         mesh_center_east, mesh_center_north (float): Center point
             of the survey area in some CRS system.
+        south_positive: True if a '+south' CRS, False otherwise.
 
     Return:
         float, float: The upper left coordinate of the image in
             relation to the survey center point. Used as GDAL origin.
     """
+    north_corner = centers_north[0] if south_positive else centers_north[-1]
     return (centers_east[0] + mesh_center_east - east_cell_size / 2,
-            centers_north[-1] + mesh_center_north + north_cell_size / 2)
-
+            north_corner + mesh_center_north + north_cell_size / 2)
 
 
 def get_centers(arr):
@@ -169,13 +190,18 @@ def list_depths(model, zpad=None):
     Return a list of available depth slices in the model.
 
     Args:
-        model (Model): ModEM Model object
+        model_file (str): Path to ModEM .rho file.
         zpad (int, optional): Number of padding slices to remove from
             bottom of model. If None, model pad_z value is used.
 
     Returns:
         list of float: A list of available depth slices.
     """
+    # Try to insantiate from model file
+    if not isinstance(model, Model):
+        model = Model()
+        model.read_model_file(model_fn=model)
+
     cz = get_centers(model.grid_z)
     zpad = model.pad_z if zpad is None else zpad
     return cz[:-zpad]

@@ -24,7 +24,7 @@ import numpy as np
 from scipy.interpolate import RegularGridInterpolator
 
 from mtpy.modeling.modem import Model, Data
-from mtpy.utils import gis_tools
+from mtpy.utils import gis_tools, EPSG_DICT
 from mtpy.utils.mtpylog import MtPyLog
 from mtpy.utils.modem_utils import (get_centers, strip_padding, strip_resgrid,
                                     get_depth_indices, list_depths, array2geotiff_writer,
@@ -162,15 +162,16 @@ def create_geogrid(data_file, model_file, out_dir, x_pad=None, y_pad=None, z_pad
     #  corner of the image. So take the upper left-cell and shift it
     #  half a cell west and north so we get the upper-left corner of
     #  the grid as GDAL origin.
-    origin = get_gdal_origin(ce, x_res, center.east, cn, y_res, center.north)
+    south_positive = '+south' in EPSG_DICT[epsg_code]
+    origin = get_gdal_origin(ce, x_res, center.east, cn, y_res, center.north, south_positive)
 
     target_gridx, target_gridy = _build_target_grid(ce, x_res, cn, y_res)
 
     resgrid_nopad = strip_resgrid(model.res_model, y_pad, x_pad, z_pad)
 
-    indicies = get_depth_indicies(cz, depths)
+    indices = get_depth_indices(cz, depths)
 
-    for di in indicies:
+    for di in indices:
         print("Writing out slice {:.0f}m...".format(cz[di]))
         data = _interpolate_slice(ce, cn, resgrid_nopad, di,
                                   target_gridx, target_gridy, log_scale)
@@ -179,7 +180,7 @@ def create_geogrid(data_file, model_file, out_dir, x_pad=None, y_pad=None, z_pad
         else:
             output_file = 'DepthSlice{:.0f}m.tif'.format(cz[di])
         output_file = os.path.join(out_dir, output_file)
-        array2geotiff_writer(output_file, origin, x_res, -y_res, data[::-1],
+        array2geotiff_writer(output_file, origin, x_res, y_res, data[::-1],
                              epsg_code=epsg_code, angle=angle, center=center,
                              rotate_origin=rotate_origin)
 
