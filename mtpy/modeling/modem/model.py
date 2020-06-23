@@ -745,7 +745,6 @@ class Model(object):
         """
         if not hasattr(self, 'res_initial_polygons') \
                 or self.res_initial_polygons is None:
-            print(self.res_initial_polygons)
             raise TypeError(
                 "Polygons must be provided to model constructor as "
                 "'res_initial_polygons' if 'by_polygons' method is used "
@@ -763,7 +762,10 @@ class Model(object):
             else:
                 depths = self.res_initial_custom_depth_ranges[z.membership]
                 res = self.res_initial_custom_values[z.membership]
-                self.make_initial_res_model_by_range(depths, res, xy_mask=z.mask)
+                # The zone mask is stripped of padding so we need to add 0s to accomodate the 
+                # padding.
+                mask = np.pad(z.mask, [self.pad_east, self.pad_north], constant_values=0)
+                self.make_initial_res_model_by_range(depths, res, xy_mask=mask)
 
     def make_initial_res_model_by_range(self, depths, res, xy_mask=None):
         """
@@ -801,7 +803,11 @@ class Model(object):
             self._logger.info(
                 f"Assigning initial res {res} to depth range {min_depth} to {max_depth}")
             if xy_mask is not None:
-                self.res_model[xy_mask, inds] = res
+                # Iterate depth indices to get around xy mask and depth indices being different 
+                # shapes (if you know how to broadcast together a 2d and 1d boolean array so they
+                # can properly mask a 3d array please do!)
+                for i in inds:
+                    self.res_model[xy_mask, i] = res
             else:
                 self.res_model[:, :, inds] = res
 
