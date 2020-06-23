@@ -697,8 +697,8 @@ class Data(object):
                     self.data_array[ii]['rel_elev'] = mt_obj.grid_elev
                     rel_distance = True
                 except AttributeError:
-                    self._logger.warn("Unable to set relative locations from 'mt_obj' "
-                                      "- not yet implemented")
+                    # self._logger.warn("Unable to set relative locations from 'mt_obj' "
+                    #                   "- not yet implemented")
                     pass
 
             # interpolate each station onto the period list
