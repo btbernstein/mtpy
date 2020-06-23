@@ -25,7 +25,7 @@ from scipy import ndimage
 from shapely.geometry import Polygon, Point
 from shapely.strtree import STRtree
 
-from mtpy.modeling.modem import Model, Data
+import mtpy.modeling.modem
 from mtpy.utils.mtpylog import MtPyLog
 from mtpy.utils import gis_tools, EPSG_DICT
 from mtpy.utils.modem_utils import (strip_resgrid, get_centers, strip_padding, get_depth_indices,
@@ -457,6 +457,7 @@ def find_zones(model, data, x_pad=None, y_pad=None, z_pad=None, depths=None,
             labels, mm = _value(res_sd, value_ranges)
             method_range = value_ranges
     elif spatial_method:
+        polygons = polygons.to_crs(epsg=epsg_code)
         labels, mm = _polygons(grid_e, grid_n, polygons, epsg_code)
         method_range = None
     else:
@@ -468,7 +469,7 @@ def find_zones(model, data, x_pad=None, y_pad=None, z_pad=None, depths=None,
     y_res = model.cell_size_north
     pixel_size = x_res * y_res
 
-    model_name = os.path.splitext(os.path.basename(model.model_fn))[0]
+    model_name = model.model_fn_basename
 
     zones = []
     for l in np.unique(labels):
@@ -609,13 +610,13 @@ def write_zone_maps(zones, model, data, x_pad=None, y_pad=None, savepath=None):
 
 
 def _load_model(model_file):
-    model = Model()
+    model = mtpy.modeling.modem.Model()
     model.read_model_file(model_fn=model_file)
     return model
 
 
 def _load_data(data_file):
-    data = Data()
+    data = mtpy.modeling.modem.Data()
     data.read_data_file(data_fn=data_file)
     return data
 

@@ -6,7 +6,7 @@ import geopandas as gpd
 import gdal
 import osr
 
-from mtpy.modeling.modem import Model
+import mtpy.modeling.modem
 from mtpy.utils.mtpylog import MtPyLog
 
 _logger = MtPyLog.get_mtpy_logger(__name__)
@@ -26,7 +26,7 @@ def shapefile_to_geoseries(path, name_field='id'):
             'name_field' field.
     """
     df = gpd.read_file(path)
-    return gpd.GeoSeries(list(df.geometry), df[name_field])
+    return gpd.GeoSeries(list(df.geometry), df[name_field], crs=df.crs)
 
 
 def rotate_transform(gt, angle, pivot_east, pivot_north):
@@ -198,8 +198,8 @@ def list_depths(model, zpad=None):
         list of float: A list of available depth slices.
     """
     # Try to insantiate from model file
-    if not isinstance(model, Model):
-        model = Model()
+    if not isinstance(model, mtpy.modeling.modem.Model):
+        model = mtpy.modeling.modem.Model()
         model.read_model_file(model_fn=model)
 
     cz = get_centers(model.grid_z)
