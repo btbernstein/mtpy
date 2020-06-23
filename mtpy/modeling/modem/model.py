@@ -20,6 +20,7 @@ from matplotlib import colors
 from mpl_toolkits.axes_grid1 import make_axes_locatable
 from scipy import stats as stats, interpolate as spi
 
+from mtpy.modeling.modem.zones import find_zones
 import mtpy.utils.calculator as mtcc
 from mtpy.modeling import ws3dinv as ws
 from mtpy.utils import mesh_tools as mtmesh, gis_tools as gis_tools, filehandling as mtfh
@@ -309,6 +310,7 @@ class Model(object):
         # For setting custom initial res
         self.res_initial_custom_depth_ranges = None
         self.res_initial_custom_values = None
+        self.res_initial_polygons = None
 
         # initial file stuff
         self.model_fn = None
@@ -540,7 +542,11 @@ class Model(object):
                                    self.nodes_east.size,
                                    self.nodes_z.size))
         if self.res_initial_method == 'by_range':
-            self.make_initial_res_model()
+            self.make_initial_res_model_by_range(self.res_initial_custom_depth_ranges,
+                                                 self.res_initial_custom_values)
+        elif self.res_initial_method == 'by_polygons':
+            self.res_model[:, :, :] = self.res_initial_value
+            self.make_initial_res_model_by_polygons()
         elif self.res_initial_method == 'constant':
             self.res_model[:, :, :] = self.res_initial_value
         else:
@@ -664,7 +670,6 @@ class Model(object):
         return self._make_z_mesh_grid_and_padding(nodes)
 
     def _make_z_mesh_grid_and_padding(self, z_nodes):
-        print(z_nodes)
         if self.z_layer_rounding is not None:
             z_nodes = np.around(z_nodes, decimals=self.z_layer_rounding)
         else:
@@ -675,7 +680,7 @@ class Model(object):
             gt = np.around(z_nodes[z_nodes >= 100],
                            decimals=-2)
             z_nodes = np.concatenate([lt, gt])
-        print(z_nodes)
+
         # padding cells in the vertical direction
         z_0 = np.float(z_nodes[-1])
         for ii in range(1, self.pad_z + 1):
@@ -723,7 +728,44 @@ class Model(object):
         # add the extra layer to the res model
         self.res_model = np.vstack([self.res_model[:, :, :n_add_layers].T, self.res_model.T]).T
 
-    def make_initial_res_model(self):
+    def make_initial_res_model_by_polygons(self):
+        """
+        Use modeling.modem.zones to get an X, Y mask for the model for
+        the provided polygons. This is then used to set the initial resistivity on the specific
+        areas masked by the polygons.
+
+        Each polygon has its own set of res values and depth ranges,
+        so the same X, Y mask can be used at multiple depths. Areas 
+        not covered by polygons + depth ranges are left with the 
+        default initial res value (usually 100 ohm/meter, defined by
+        model.res_initial_value).
+
+        Requires the modeling.modem.data.Data object to be supplied
+        to Model constructor as 'data_obj'
+        """
+        if not hasattr(self, 'res_initial_polygons') \
+                or self.res_initial_polygons is None:
+            print(self.res_initial_polygons)
+            raise TypeError(
+                "Polygons must be provided to model constructor as "
+                "'res_initial_polygons' if 'by_polygons' method is used "
+                "for setting initial res.")
+        if not hasattr(self, 'data_obj') \
+                or self.data_obj is None:
+            raise TypeError(
+                "ModEM data object must be provided as 'data_object' "
+                "when 'by_polygons' method is used")
+        zones = \
+            find_zones(self, self.data_obj, method='polygons', polygons=self.res_initial_polygons)
+        for z in zones:
+            if z.membership == 'undefined':
+                continue
+            else:
+                depths = self.res_initial_custom_depth_ranges[z.membership]
+                res = self.res_initial_custom_values[z.membership]
+                self.make_initial_res_model_by_range(depths, res, xy_mask=z.mask)
+
+    def make_initial_res_model_by_range(self, depths, res, xy_mask=None):
         """
         Create a custom initial res model by assigning resistivity
         values to certain depth ranges.
@@ -737,9 +779,6 @@ class Model(object):
             to depth range with corresponding index. Must be same
             length as `depths`.
         """
-        depths = self.res_initial_custom_depth_ranges
-        res = self.res_initial_custom_values
-
         if len(res) != len(depths):
             raise ValueError("'res' and 'depths' must be same length. A resistivity value must be "
                              "provided for every depth range provided.")
@@ -761,7 +800,10 @@ class Model(object):
             inds = range(start, stop + 1)
             self._logger.info(
                 f"Assigning initial res {res} to depth range {min_depth} to {max_depth}")
-            self.res_model[:, :, inds] = res
+            if xy_mask is not None:
+                self.res_model[xy_mask, inds] = res
+            else:
+                self.res_model[:, :, inds] = res
 
     def assign_resistivity_from_surfacedata(self, top_surface, bottom_surface, resistivity_value):
         """
