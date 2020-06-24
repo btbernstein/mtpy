@@ -542,6 +542,7 @@ class Model(object):
                                    self.nodes_east.size,
                                    self.nodes_z.size))
         if self.res_initial_method == 'by_range':
+            self.res_model[:, :, :] = self.res_initial_value
             self.make_initial_res_model_by_range(self.res_initial_custom_depth_ranges,
                                                  self.res_initial_custom_values)
         elif self.res_initial_method == 'by_polygons':
@@ -790,9 +791,6 @@ class Model(object):
                 raise ValueError(
                     f"Depth range {i} is invalid. Max depth ({dr[1]}) must be less than min depth "
                     f"{dr[0]}.")
-
-        # Set any unspecified depths as the res initial value
-        self.res_model[:, :, :] = self.res_initial_value
 
         grid_z_centers = get_centers(self.grid_z)
         for dr, res in zip(depths, res):
