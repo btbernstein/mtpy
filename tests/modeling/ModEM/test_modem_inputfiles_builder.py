@@ -110,13 +110,13 @@ class TestModemInputFilesBuilder(TestCase):
         # BM: if this test is failing check that the correct filenames are being selected
         #   for comparison
         for test_output, expected_output in (
-                ("ModEM_Datatopo.dat", "ModEM_Data.dat"),
+                ("ModEM_Data_topo.dat", "ModEM_Data.dat"),
                 ("covariance.cov", "covariance.cov"),
                 ("ModEM_Model_File.rho", "ModEM_Model_File.rho")
         ):
             output_data_file = os.path.normpath(os.path.join(self._output_dir, test_output))
-
-            self.assertTrue(os.path.isfile(output_data_file), "output data file not found")
+            self.assertTrue(os.path.isfile(output_data_file),
+                            f"output data file {output_data_file} not found")
 
             expected_data_file = os.path.normpath(os.path.join(self._expected_output_dir, expected_output))
 
@@ -249,7 +249,7 @@ class TestModemInputFilesBuilder(TestCase):
 
         edipath = EDI_DATA_DIR  # path where edi files are located
         # set the dir to the output from the previously correct run
-        self._expected_output_dir = os.path.join(SAMPLE_DIR, 'ModEM', 'edi_elevation')
+        self._expected_output_dir = os.path.join(SAMPLE_DIR, 'ModEM')
 
         # period list (will not include periods outside of the range of the edi file)
         start_period = -2
@@ -306,13 +306,14 @@ class TestModemInputFilesBuilder(TestCase):
         # BM: if this test is failing check that the correct filenames are being selected
         #   for comparison
         for test_output, expected_output in (
-                ("ModEM_Datatopo.dat", "ModEM_Data_EDI_elev.dat"),
+                ("ModEM_Data_topo.dat", "ModEM_Data_EDI_elev.dat"),
                 ("covariance.cov", "covariance_EDI_elev.cov"),
                 ("ModEM_Model_File.rho", "ModEM_Model_File_EDI_elev.rho")
         ):
             output_data_file = os.path.normpath(os.path.join(self._output_dir, test_output))
 
-            self.assertTrue(os.path.isfile(output_data_file), "output data file not found")
+            self.assertTrue(os.path.isfile(output_data_file),
+                            f"output data file {output_data_file} not found")
 
             expected_data_file = os.path.normpath(os.path.join(self._expected_output_dir, expected_output))
 
