@@ -20,6 +20,7 @@ install:
 - pip install  obspy
 - pip install pytest-xdist  pytest-cov coveralls
 - pip install configparser
+- pip install scikit-learn==0.22.2.post1
 
 script:
 - pytest -v --cov=mtpy --cov-report= tests --ignore=tests/SmartMT
